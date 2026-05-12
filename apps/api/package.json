@@ -15,6 +15,7 @@
     "dotenv": "latest",
     "drizzle-orm": "latest",
     "hono": "latest",
+    "pdfjs-dist": "latest",
     "postgres": "latest",
     "zod": "latest"
   },
