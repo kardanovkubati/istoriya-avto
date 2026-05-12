@@ -1,0 +1,126 @@
+import { describe, expect, it } from "bun:test";
+import { evaluateReportForPoints } from "./points-policy";
+
+const NOW = new Date("2026-05-12T12:00:00.000Z");
+
+describe("evaluateReportForPoints", () => {
+  it("grants one point for a fresh valid report", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 3,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "grant",
+      points: 1,
+      reason: "fresh_valid_report"
+    });
+  });
+
+  it("denies a second point for the same VIN for the same user forever", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 5,
+        isFirstReportForVin: false,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: true,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "deny",
+      points: 0,
+      reason: "user_already_rewarded_for_vin"
+    });
+  });
+
+  it("grants for a 91-180 day report only when it is the first report for the VIN", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-02-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 3,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: false,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "grant",
+      points: 1,
+      reason: "first_report_for_vin_with_aging_data"
+    });
+  });
+
+  it("denies stale reports older than 180 days", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2025-09-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 6,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: false,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "deny",
+      points: 0,
+      reason: "report_older_than_180_days"
+    });
+  });
+
+  it("requires manual review when the same report fingerprint already reached the automatic grant limit", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 4,
+        isFirstReportForVin: false,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 3
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "fingerprint_auto_grant_limit_reached"
+    });
+  });
+
+  it("requires manual review when parsing quality is too weak", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 1,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "insufficient_parsed_data"
+    });
+  });
+});
