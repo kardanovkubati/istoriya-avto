@@ -51,6 +51,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button:focus-visible {
+  outline: 3px solid rgba(12, 124, 89, 0.34);
+  outline-offset: 3px;
+}
+
 .app-shell {
   width: min(100%, 1060px);
   min-height: 100vh;
@@ -175,6 +180,13 @@ h1 {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
+}
+
+.input-row:focus-within {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 3px rgba(12, 124, 89, 0.18),
+    0 10px 28px rgba(42, 35, 24, 0.08);
 }
 
 .input-row svg {

@@ -91,7 +91,7 @@ function App() {
           <span className="brand-mark">ИА</span>
           <span>История Авто</span>
         </a>
-        <button className="account-pill" type="button">
+        <button className="account-pill" type="button" aria-label="Открыть кабинет">
           <Bell aria-hidden="true" size={16} />
           <span>Кабинет</span>
         </button>
