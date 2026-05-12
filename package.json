@@ -1,0 +1,16 @@
+{
+  "name": "istoriya-avto",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "test": "bun run --cwd packages/shared test && bun run --cwd apps/api test",
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck",
+    "db:generate": "bun run --cwd apps/api db:generate"
+  }
+}

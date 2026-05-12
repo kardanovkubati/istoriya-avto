@@ -1,0 +1,277 @@
+import {
+  boolean,
+  index,
+  integer,
+  jsonb,
+  numeric,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid
+} from "drizzle-orm/pg-core";
+
+export const authProvider = pgEnum("auth_provider", ["phone", "telegram", "max"]);
+export const uploadStatus = pgEnum("upload_status", [
+  "received",
+  "parsed",
+  "manual_review",
+  "rejected"
+]);
+export const pointLedgerReason = pgEnum("point_ledger_reason", [
+  "report_grant",
+  "report_access_spend",
+  "admin_adjustment",
+  "fraud_reversal"
+]);
+export const subscriptionStatus = pgEnum("subscription_status", [
+  "active",
+  "canceled",
+  "expired",
+  "payment_failed"
+]);
+export const complaintStatus = pgEnum("complaint_status", [
+  "open",
+  "in_review",
+  "resolved",
+  "rejected"
+]);
+
+const timestamps = {
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
+};
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  primaryContactProvider: authProvider("primary_contact_provider"),
+  emailForReceipts: text("email_for_receipts"),
+  pointsBalance: integer("points_balance").notNull().default(0),
+  ...timestamps
+});
+
+export const authIdentities = pgTable(
+  "auth_identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    provider: authProvider("provider").notNull(),
+    providerUserId: text("provider_user_id").notNull(),
+    displayName: text("display_name"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps
+  },
+  (table) => ({
+    providerUserUnique: uniqueIndex("auth_identities_provider_user_unique").on(
+      table.provider,
+      table.providerUserId
+    ),
+    userProviderUnique: uniqueIndex("auth_identities_user_provider_unique").on(
+      table.userId,
+      table.provider
+    )
+  })
+);
+
+export const guestSessions = pgTable(
+  "guest_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    claimedByUserId: uuid("claimed_by_user_id").references(() => users.id),
+    ...timestamps
+  },
+  (table) => ({
+    tokenHashUnique: uniqueIndex("guest_sessions_token_hash_unique").on(table.tokenHash)
+  })
+);
+
+export const vehicles = pgTable(
+  "vehicles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vin: text("vin").notNull(),
+    make: text("make"),
+    model: text("model"),
+    year: integer("year"),
+    bodyType: text("body_type"),
+    color: text("color"),
+    engine: text("engine"),
+    transmission: text("transmission"),
+    driveType: text("drive_type"),
+    extraData: jsonb("extra_data").$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps
+  },
+  (table) => ({
+    vinUnique: uniqueIndex("vehicles_vin_unique").on(table.vin)
+  })
+);
+
+export const vehicleIdentifiers = pgTable(
+  "vehicle_identifiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vehicleId: uuid("vehicle_id").notNull().references(() => vehicles.id),
+    kind: text("kind").notNull(),
+    value: text("value").notNull(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    identifierLookup: index("vehicle_identifiers_lookup_idx").on(table.kind, table.value)
+  })
+);
+
+export const reportFingerprints = pgTable(
+  "report_fingerprints",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fingerprint: text("fingerprint").notNull(),
+    automaticGrantCount: integer("automatic_grant_count").notNull().default(0),
+    ...timestamps
+  },
+  (table) => ({
+    fingerprintUnique: uniqueIndex("report_fingerprints_fingerprint_unique").on(table.fingerprint)
+  })
+);
+
+export const reportUploads = pgTable(
+  "report_uploads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id),
+    guestSessionId: uuid("guest_session_id").references(() => guestSessions.id),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+    reportFingerprintId: uuid("report_fingerprint_id").references(() => reportFingerprints.id),
+    status: uploadStatus("status").notNull().default("received"),
+    sourceKind: text("source_kind").notNull(),
+    originalObjectKey: text("original_object_key"),
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    parserVersion: text("parser_version"),
+    parseQualityScore: numeric("parse_quality_score", { precision: 5, scale: 2 }),
+    rawData: jsonb("raw_data").$type<Record<string, unknown>>().notNull().default({}),
+    reviewReason: text("review_reason"),
+    ...timestamps
+  },
+  (table) => ({
+    uploadVehicleIdx: index("report_uploads_vehicle_idx").on(table.vehicleId),
+    uploadUserIdx: index("report_uploads_user_idx").on(table.userId)
+  })
+);
+
+export const pointLedgerEntries = pgTable(
+  "point_ledger_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+    reportUploadId: uuid("report_upload_id").references(() => reportUploads.id),
+    delta: integer("delta").notNull(),
+    reason: pointLedgerReason("reason").notNull(),
+    note: text("note"),
+    ...timestamps
+  },
+  (table) => ({
+    pointUserIdx: index("point_ledger_entries_user_idx").on(table.userId)
+  })
+);
+
+export const vehicleAccesses = pgTable(
+  "vehicle_accesses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    vehicleId: uuid("vehicle_id").notNull().references(() => vehicles.id),
+    accessMethod: text("access_method").notNull(),
+    firstAccessedAt: timestamp("first_accessed_at", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps
+  },
+  (table) => ({
+    userVehicleUnique: uniqueIndex("vehicle_accesses_user_vehicle_unique").on(
+      table.userId,
+      table.vehicleId
+    )
+  })
+);
+
+export const subscriptionPlans = pgTable(
+  "subscription_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    priceRub: integer("price_rub").notNull(),
+    reportsPerPeriod: integer("reports_per_period").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    ...timestamps
+  },
+  (table) => ({
+    codeUnique: uniqueIndex("subscription_plans_code_unique").on(table.code)
+  })
+);
+
+export const subscriptions = pgTable(
+  "subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    planId: uuid("plan_id").notNull().references(() => subscriptionPlans.id),
+    status: subscriptionStatus("status").notNull(),
+    currentPeriodStart: timestamp("current_period_start", { withTimezone: true }).notNull(),
+    currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }).notNull(),
+    remainingReports: integer("remaining_reports").notNull(),
+    autoRenew: boolean("auto_renew").notNull().default(true),
+    provider: text("provider").notNull(),
+    providerSubscriptionId: text("provider_subscription_id"),
+    ...timestamps
+  },
+  (table) => ({
+    subscriptionUserIdx: index("subscriptions_user_idx").on(table.userId)
+  })
+);
+
+export const shareLinks = pgTable(
+  "share_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vehicleId: uuid("vehicle_id").notNull().references(() => vehicles.id),
+    ownerUserId: uuid("owner_user_id").notNull().references(() => users.id),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    shareTokenUnique: uniqueIndex("share_links_token_hash_unique").on(table.tokenHash)
+  })
+);
+
+export const supportTickets = pgTable("support_tickets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id),
+  channel: text("channel").notNull(),
+  status: complaintStatus("status").notNull().default("open"),
+  subject: text("subject").notNull(),
+  message: text("message").notNull(),
+  ...timestamps
+});
+
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    actorUserId: uuid("actor_user_id").references(() => users.id),
+    eventType: text("event_type").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow()
+  },
+  (table) => ({
+    auditEntityIdx: index("audit_events_entity_idx").on(table.entityType, table.entityId)
+  })
+);
