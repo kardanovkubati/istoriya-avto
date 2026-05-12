@@ -7,10 +7,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:api": "bun --cwd apps/api run dev",
-    "dev:web": "bun --cwd apps/web run dev",
-    "test": "bun --cwd packages/shared test && bun --cwd apps/api test",
-    "typecheck": "bun --cwd packages/shared run typecheck && bun --cwd apps/api run typecheck && bun --cwd apps/web run typecheck",
-    "db:generate": "bun --cwd apps/api run db:generate"
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "test": "bun run --cwd packages/shared test && bun run --cwd apps/api test",
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck",
+    "db:generate": "bun run --cwd apps/api db:generate"
   }
 }
