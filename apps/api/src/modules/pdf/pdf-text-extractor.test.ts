@@ -13,6 +13,15 @@ describe("extractPdfText", () => {
     expect(result.text).toContain("Date: 01.05.2026");
   });
 
+  it("does not detach caller-owned PDF bytes", async () => {
+    const bytes = Uint8Array.from(Buffer.from(TEXT_PDF_BASE64, "base64"));
+    const byteLength = bytes.byteLength;
+
+    await extractPdfText(bytes);
+
+    expect(bytes.byteLength).toBe(byteLength);
+  });
+
   it("marks non-PDF bytes as extraction failure", async () => {
     const result = await extractPdfText(new TextEncoder().encode("not a pdf"));
 

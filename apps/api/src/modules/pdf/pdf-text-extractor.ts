@@ -1,4 +1,4 @@
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { getDocument, VerbosityLevel, type PDFDocumentProxy } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export type PdfTextExtractionResult = {
   text: string;
@@ -10,12 +10,17 @@ export type PdfTextExtractionResult = {
 type PdfTextItem = { str: string };
 
 export async function extractPdfText(bytes: Uint8Array): Promise<PdfTextExtractionResult> {
+  let document: PDFDocumentProxy | null = null;
+  let loadingTask: ReturnType<typeof getDocument> | null = null;
+
   try {
-    const document = await getDocument({
-      data: bytes,
+    loadingTask = getDocument({
+      data: new Uint8Array(bytes),
       disableFontFace: true,
-      useSystemFonts: true
-    }).promise;
+      useSystemFonts: true,
+      verbosity: VerbosityLevel.ERRORS
+    });
+    document = await loadingTask.promise;
 
     const pageTexts: string[] = [];
 
@@ -37,6 +42,17 @@ export async function extractPdfText(bytes: Uint8Array): Promise<PdfTextExtracti
     return { text, pageCount: document.numPages, hasExtractableText: text.length > 0, errorCode: null };
   } catch {
     return { text: "", pageCount: 0, hasExtractableText: false, errorCode: "pdf_parse_failed" };
+  } finally {
+    try {
+      if (document !== null) {
+        await document.cleanup();
+        await document.destroy();
+      } else {
+        await loadingTask?.destroy();
+      }
+    } catch {
+      // Cleanup failures should not replace the extraction result.
+    }
   }
 }
 
