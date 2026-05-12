@@ -1,0 +1,50 @@
+{
+  "sourceKind": "autoteka_pdf",
+  "parserVersion": "autoteka-v1",
+  "status": "parsed",
+  "vin": "XTA219010N1234567",
+  "generatedAt": "2026-04-20T00:00:00.000Z",
+  "vehicle": {
+    "vin": "XTA219010N1234567",
+    "make": "Hyundai",
+    "model": "Solaris",
+    "year": 2018,
+    "bodyType": "седан",
+    "color": "серый",
+    "engine": "1.6 бензин",
+    "transmission": "автомат",
+    "driveType": "передний"
+  },
+  "listings": [
+    {
+      "observedAt": "2026-04-01T00:00:00.000Z",
+      "priceRub": 930000,
+      "mileageKm": 88500,
+      "city": "Санкт-Петербург"
+    }
+  ],
+  "mileageReadings": [
+    {
+      "observedAt": "2026-04-01T00:00:00.000Z",
+      "mileageKm": 88500,
+      "context": "объявление"
+    },
+    {
+      "observedAt": "2024-10-18T00:00:00.000Z",
+      "mileageKm": 71200,
+      "context": "техническое обслуживание"
+    }
+  ],
+  "riskFlags": {
+    "accidents": "found",
+    "repairCalculations": "found",
+    "restrictions": "found",
+    "pledge": "found",
+    "wanted": "not_found",
+    "taxi": "found",
+    "leasing": "not_found"
+  },
+  "keyBlocks": ["vehicle_passport", "listings_or_mileage", "risk_checks"],
+  "warnings": [],
+  "qualityScore": 1
+}

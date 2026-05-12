@@ -1,0 +1,50 @@
+{
+  "sourceKind": "autoteka_pdf",
+  "parserVersion": "autoteka-v1",
+  "status": "parsed",
+  "vin": "XTA210990Y2765499",
+  "generatedAt": "2026-05-01T00:00:00.000Z",
+  "vehicle": {
+    "vin": "XTA210990Y2765499",
+    "make": "LADA",
+    "model": "Granta",
+    "year": 2021,
+    "bodyType": "седан",
+    "color": "белый",
+    "engine": "1.6 бензин",
+    "transmission": "механическая",
+    "driveType": "передний"
+  },
+  "listings": [
+    {
+      "observedAt": "2026-04-15T00:00:00.000Z",
+      "priceRub": 780000,
+      "mileageKm": 42000,
+      "city": "Москва"
+    }
+  ],
+  "mileageReadings": [
+    {
+      "observedAt": "2026-04-15T00:00:00.000Z",
+      "mileageKm": 42000,
+      "context": "объявление"
+    },
+    {
+      "observedAt": "2025-02-10T00:00:00.000Z",
+      "mileageKm": 31000,
+      "context": "техническое обслуживание"
+    }
+  ],
+  "riskFlags": {
+    "accidents": "not_found",
+    "repairCalculations": "not_found",
+    "restrictions": "not_found",
+    "pledge": "not_found",
+    "wanted": "not_found",
+    "taxi": "not_found",
+    "leasing": "not_found"
+  },
+  "keyBlocks": ["vehicle_passport", "listings_or_mileage", "risk_checks"],
+  "warnings": [],
+  "qualityScore": 1
+}

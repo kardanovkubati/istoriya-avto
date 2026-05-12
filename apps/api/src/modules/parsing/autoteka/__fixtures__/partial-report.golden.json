@@ -1,0 +1,41 @@
+{
+  "sourceKind": "autoteka_pdf",
+  "parserVersion": "autoteka-v1",
+  "status": "manual_review",
+  "vin": "XTA111730R7654321",
+  "generatedAt": null,
+  "vehicle": {
+    "vin": "XTA111730R7654321",
+    "make": "Kia",
+    "model": "Rio",
+    "year": 2020,
+    "bodyType": null,
+    "color": "синий",
+    "engine": null,
+    "transmission": null,
+    "driveType": null
+  },
+  "listings": [],
+  "mileageReadings": [],
+  "riskFlags": {
+    "accidents": "unknown",
+    "repairCalculations": "unknown",
+    "restrictions": "unknown",
+    "pledge": "unknown",
+    "wanted": "unknown",
+    "taxi": "unknown",
+    "leasing": "unknown"
+  },
+  "keyBlocks": ["vehicle_passport"],
+  "warnings": [
+    {
+      "code": "missing_generated_at",
+      "message": "Не удалось определить дату формирования отчета."
+    },
+    {
+      "code": "insufficient_key_blocks",
+      "message": "Отчет содержит меньше трех ключевых блоков для автоматической обработки."
+    }
+  ],
+  "qualityScore": 0.33
+}
