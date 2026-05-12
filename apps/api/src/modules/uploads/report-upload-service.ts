@@ -78,12 +78,17 @@ export class ReportUploadService {
       extractedText: extractedText.hasExtractableText ? extractedText.text : storedObject.sha256
     });
 
-    const existingVehicle =
-      parsedReport.vin === null ? null : await this.repository.findVehicleByVin(parsedReport.vin);
-    const vehicle =
-      parsedReport.vin === null
-        ? null
-        : await this.repository.upsertVehicleFromParsedReport(parsedReport);
+    const trustedVin = parsedReport.status === "parsed" ? parsedReport.vin : null;
+    const shouldAttachVehicle = trustedVin !== null;
+    const existingVehicle = trustedVin !== null
+      ? await this.repository.findVehicleByVin(trustedVin)
+      : null;
+    const vehicle = shouldAttachVehicle
+      ? await this.repository.upsertVehicleFromParsedReport(parsedReport)
+      : null;
+    if (shouldAttachVehicle && vehicle === null) {
+      throw new Error("vehicle_upsert_failed");
+    }
     const fingerprintRecord = await this.repository.findOrCreateFingerprint(fingerprint);
 
     const userHasEverReceivedPointForVin =

@@ -226,7 +226,32 @@ describe("ReportUploadService", () => {
       reason: "parser_manual_review_required"
     });
     expect(repository.createdUploads[0]?.status).toBe("manual_review");
+    expect(repository.upsertVehicleCalls).toBe(0);
+    expect(repository.createdUploads[0]?.vehicleId).toBeNull();
     expect(repository.createdUploads[0]?.reviewReason).toBe("multiple_vins_found");
+  });
+
+  it("rejects trusted parsed reports when vehicle upsert fails to return a vehicle", async () => {
+    const repository = new FakeReportUploadRepository({ returnNullFromUpsert: true });
+    const service = createService({
+      repository,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    await expect(
+      service.ingestPdf({
+        userId: "user-1",
+        guestSessionId: "guest-1",
+        bytes: PDF_BYTES,
+        originalFileName: "autoteka.pdf"
+      })
+    ).rejects.toThrow("vehicle_upsert_failed");
   });
 });
 
@@ -296,15 +321,20 @@ class FakeReportUploadRepository implements ReportUploadRepository {
   createdUploads: CreateReportUploadInput[] = [];
   pointLedgerMutations = 0;
   userBalanceMutations = 0;
+  upsertVehicleCalls = 0;
   private readonly vehicles = new Map<string, VehicleRecord>();
   private readonly fingerprints = new Map<string, FingerprintRecord>();
+
+  constructor(private readonly options: { returnNullFromUpsert?: boolean } = {}) {}
 
   async findVehicleByVin(vin: string): Promise<VehicleRecord | null> {
     return this.vehicles.get(vin) ?? null;
   }
 
-  async upsertVehicleFromParsedReport(report: ParsedReport): Promise<VehicleRecord | null> {
+  async upsertVehicleFromParsedReport(report: ParsedReport): Promise<VehicleRecord> {
+    this.upsertVehicleCalls += 1;
     if (report.vin === null) throw new Error("Cannot upsert vehicle without VIN.");
+    if (this.options.returnNullFromUpsert === true) return null as unknown as VehicleRecord;
 
     const vehicle = this.vehicles.get(report.vin) ?? {
       id: `vehicle-${this.vehicles.size + 1}`,

@@ -45,7 +45,7 @@ export type CreatedReportUpload = {
 
 export interface ReportUploadRepository {
   findVehicleByVin(vin: string): Promise<VehicleRecord | null>;
-  upsertVehicleFromParsedReport(parsedReport: ParsedReport): Promise<VehicleRecord | null>;
+  upsertVehicleFromParsedReport(parsedReport: ParsedReport): Promise<VehicleRecord>;
   findOrCreateFingerprint(fingerprint: string): Promise<FingerprintRecord>;
   userHasReceivedPointForVin(userId: string, vehicleId: string): Promise<boolean>;
   userHasReceivedPointForFingerprint(userId: string, fingerprintId: string): Promise<boolean>;
