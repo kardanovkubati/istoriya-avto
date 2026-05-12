@@ -108,37 +108,80 @@ describe("upload routes", () => {
     expect(dependencies.calls).toHaveLength(0);
   });
 
-  it("passes valid optional userId and guestSessionId through but treats invalid UUID strings as null", async () => {
+  it("rejects oversized requests by content-length before parsing without calling ingestPdf", async () => {
+    const dependencies = createDependencies({ maxUploadBytes: 3 });
+    const routes = createUploadRoutes(dependencies);
+
+    const response = await routes.request("/report-pdf", {
+      method: "POST",
+      headers: {
+        "content-length": "4"
+      },
+      body: new FormData()
+    });
+
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "report_file_too_large",
+        message: "PDF-файл отчета слишком большой."
+      }
+    });
+    expect(dependencies.calls).toHaveLength(0);
+  });
+
+  it("rejects client-supplied identity fields without calling ingestPdf", async () => {
     const dependencies = createDependencies();
     const routes = createUploadRoutes(dependencies);
 
-    const validForm = new FormData();
-    validForm.append("rightsConfirmed", "true");
-    validForm.append("file", pdfFile());
-    validForm.append("userId", VALID_USER_ID);
-    validForm.append("guestSessionId", VALID_GUEST_SESSION_ID);
+    const identityFields: Array<[string, string]> = [
+      ["userId", VALID_USER_ID],
+      ["guestSessionId", VALID_GUEST_SESSION_ID]
+    ];
 
-    const invalidForm = new FormData();
-    invalidForm.append("rightsConfirmed", "true");
-    invalidForm.append("file", pdfFile());
-    invalidForm.append("userId", "not-a-uuid");
-    invalidForm.append("guestSessionId", "also-not-a-uuid");
+    for (const [field, value] of identityFields) {
+      const form = new FormData();
+      form.append("rightsConfirmed", "true");
+      form.append("file", pdfFile());
+      form.append(field, value);
 
-    const validResponse = await routes.request("/report-pdf", {
+      const response = await routes.request("/report-pdf", {
+        method: "POST",
+        body: form
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: {
+          code: "client_identity_not_allowed",
+          message: "Идентификатор пользователя определяется сервером."
+        }
+      });
+    }
+
+    expect(dependencies.calls).toHaveLength(0);
+  });
+
+  it("rejects fake PDFs by magic bytes without calling ingestPdf", async () => {
+    const dependencies = createDependencies();
+    const routes = createUploadRoutes(dependencies);
+    const form = new FormData();
+    form.append("rightsConfirmed", "true");
+    form.append("file", new File(["not pdf"], "report.pdf", { type: "application/pdf" }));
+
+    const response = await routes.request("/report-pdf", {
       method: "POST",
-      body: validForm
-    });
-    const invalidResponse = await routes.request("/report-pdf", {
-      method: "POST",
-      body: invalidForm
+      body: form
     });
 
-    expect(validResponse.status).toBe(201);
-    expect(invalidResponse.status).toBe(201);
-    expect(dependencies.calls[0]?.userId).toBe(VALID_USER_ID);
-    expect(dependencies.calls[0]?.guestSessionId).toBe(VALID_GUEST_SESSION_ID);
-    expect(dependencies.calls[1]?.userId).toBeNull();
-    expect(dependencies.calls[1]?.guestSessionId).toBeNull();
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "invalid_pdf_upload",
+        message: "Загрузите PDF-файл отчета."
+      }
+    });
+    expect(dependencies.calls).toHaveLength(0);
   });
 });
 

@@ -1,5 +1,4 @@
-import { Hono } from "hono";
-import { z } from "zod";
+import { type Context, Hono } from "hono";
 import { env } from "../../env";
 import { parseAutotekaReport } from "../parsing/autoteka/autoteka-parser";
 import { extractPdfText } from "../pdf/pdf-text-extractor";
@@ -19,12 +18,15 @@ export type UploadRoutesDependencies = {
   }): Promise<IngestPdfResult>;
 };
 
-const uuidSchema = z.string().uuid();
-
 export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono {
   const routes = new Hono();
 
   routes.post("/report-pdf", async (context) => {
+    const contentLength = parseContentLength(context.req.header("content-length"));
+    if (contentLength !== null && contentLength > dependencies.maxUploadBytes) {
+      return reportFileTooLarge(context);
+    }
+
     const body = await context.req.parseBody().catch(() => null);
 
     if (body === null || body.rightsConfirmed !== "true") {
@@ -54,23 +56,40 @@ export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono
     }
 
     if (file.size > dependencies.maxUploadBytes) {
+      return reportFileTooLarge(context);
+    }
+
+    if (body.userId !== undefined || body.guestSessionId !== undefined) {
       return context.json(
         {
           error: {
-            code: "report_file_too_large",
-            message: "PDF-файл отчета слишком большой."
+            code: "client_identity_not_allowed",
+            message: "Идентификатор пользователя определяется сервером."
           }
         },
-        413
+        400
+      );
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (!hasPdfMagicBytes(bytes)) {
+      return context.json(
+        {
+          error: {
+            code: "invalid_pdf_upload",
+            message: "Загрузите PDF-файл отчета."
+          }
+        },
+        400
       );
     }
 
     const result = await dependencies.ingestPdf({
       fileName: file.name,
       contentType: file.type || "application/pdf",
-      bytes: new Uint8Array(await file.arrayBuffer()),
-      userId: parseOptionalUuid(body.userId),
-      guestSessionId: parseOptionalUuid(body.guestSessionId),
+      bytes,
+      userId: null,
+      guestSessionId: null,
       now: new Date()
     });
 
@@ -115,9 +134,25 @@ function isPdfFile(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-function parseOptionalUuid(value: unknown): string | null {
-  if (typeof value !== "string") return null;
+function hasPdfMagicBytes(bytes: Uint8Array): boolean {
+  return bytes[0] === 37 && bytes[1] === 80 && bytes[2] === 68 && bytes[3] === 70;
+}
 
-  const parsed = uuidSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+function parseContentLength(value: string | undefined): number | null {
+  if (value === undefined) return null;
+
+  const contentLength = Number(value);
+  return Number.isInteger(contentLength) && Number.isFinite(contentLength) ? contentLength : null;
+}
+
+function reportFileTooLarge(context: Context) {
+  return context.json(
+    {
+      error: {
+        code: "report_file_too_large",
+        message: "PDF-файл отчета слишком большой."
+      }
+    },
+    413
+  );
 }
