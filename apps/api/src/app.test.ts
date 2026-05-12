@@ -48,4 +48,11 @@ describe("api app", () => {
       }
     });
   });
+
+  it("loads test-safe environment defaults", async () => {
+    const { env } = await import("./env");
+
+    expect(env.PORT).toBeGreaterThan(0);
+    expect(env.DATABASE_URL.startsWith("postgresql://")).toBe(true);
+  });
 });
