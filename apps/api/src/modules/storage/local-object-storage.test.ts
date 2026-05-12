@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "bun:test";
@@ -23,7 +23,7 @@ describe("LocalObjectStorage", () => {
       expect(result.sizeBytes).toBe(4);
       expect(result.contentType).toBe("application/pdf");
       expect(result.expiresAt.toISOString()).toBe(expiresAt.toISOString());
-      expect(result.sha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(result.sha256).toBe("315d429b7714cedb6ad04ac31240145257692630457f3c88253c5beceac76027");
 
       const storedBytes = await readFile(join(dir, result.key));
       expect([...storedBytes]).toEqual([37, 80, 68, 70]);
@@ -31,4 +31,36 @@ describe("LocalObjectStorage", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it("rejects traversal namespaces without writing outside the root", async () => {
+    const parentDir = await mkdtemp(join(tmpdir(), "istoriya-storage-parent-"));
+    const rootDir = join(parentDir, "root");
+    const outsideDir = join(parentDir, "outside");
+
+    try {
+      await mkdir(rootDir);
+      const storage = new LocalObjectStorage({ rootDir });
+
+      await expect(storage.putObject({
+        namespace: "../outside",
+        bytes: new Uint8Array([37, 80, 68, 70]),
+        contentType: "application/pdf",
+        originalFileName: "report.pdf",
+        expiresAt: new Date("2026-11-08T12:00:00.000Z")
+      })).rejects.toThrow("Invalid storage namespace.");
+
+      expect(await pathExists(outsideDir)).toBe(false);
+    } finally {
+      await rm(parentDir, { recursive: true, force: true });
+    }
+  });
 });
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
