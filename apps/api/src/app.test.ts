@@ -49,6 +49,21 @@ describe("api app", () => {
     });
   });
 
+  it("exposes report upload route", async () => {
+    const response = await app.request("/api/uploads/report-pdf", {
+      method: "POST",
+      body: new FormData()
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "rights_confirmation_required",
+        message: "Подтвердите, что у вас есть право загружать этот отчет."
+      }
+    });
+  });
+
   it("allows browser calls from localhost and 127.0.0.1 dev origins", async () => {
     for (const origin of ["http://localhost:5173", "http://127.0.0.1:5173"]) {
       const response = await app.request("/api/search/detect", {
