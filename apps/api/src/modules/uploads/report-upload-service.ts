@@ -79,21 +79,14 @@ export class ReportUploadService {
     });
 
     const trustedVin = parsedReport.status === "parsed" ? parsedReport.vin : null;
-    const shouldAttachVehicle = trustedVin !== null;
     const existingVehicle = trustedVin !== null
       ? await this.repository.findVehicleByVin(trustedVin)
       : null;
-    const vehicle = shouldAttachVehicle
-      ? await this.repository.upsertVehicleFromParsedReport(parsedReport)
-      : null;
-    if (shouldAttachVehicle && vehicle === null) {
-      throw new Error("vehicle_upsert_failed");
-    }
     const fingerprintRecord = await this.repository.findOrCreateFingerprint(fingerprint);
 
     const userHasEverReceivedPointForVin =
-      input.userId !== null && vehicle !== null
-        ? await this.repository.userHasReceivedPointForVin(input.userId, vehicle.id)
+      input.userId !== null && existingVehicle !== null
+        ? await this.repository.userHasReceivedPointForVin(input.userId, existingVehicle.id)
         : false;
     const userHasEverReceivedPointForFingerprint =
       input.userId !== null
@@ -120,6 +113,13 @@ export class ReportUploadService {
       parsedReport.status === "parsed" && pointsEvaluation.decision !== "manual_review"
         ? "parsed"
         : "manual_review";
+    const vehicle =
+      status === "parsed" && trustedVin !== null
+        ? await this.repository.upsertVehicleFromParsedReport(parsedReport)
+        : null;
+    if (status === "parsed" && trustedVin !== null && vehicle === null) {
+      throw new Error("vehicle_upsert_failed");
+    }
     const reviewReason =
       status === "parsed"
         ? null

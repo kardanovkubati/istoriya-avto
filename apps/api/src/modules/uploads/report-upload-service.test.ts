@@ -253,6 +253,36 @@ describe("ReportUploadService", () => {
       })
     ).rejects.toThrow("vehicle_upsert_failed");
   });
+
+  it("does not attach vehicles for parsed reports that require manual review by points policy", async () => {
+    const repository = new FakeReportUploadRepository({ automaticGrantCount: 3 });
+    const service = createService({
+      repository,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    const result = await service.ingestPdf({
+      userId: "user-1",
+      guestSessionId: "guest-1",
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(result.status).toBe("manual_review");
+    expect(result.pointsEvaluation).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "fingerprint_auto_grant_limit_reached"
+    });
+    expect(repository.upsertVehicleCalls).toBe(0);
+    expect(repository.createdUploads[0]?.vehicleId).toBeNull();
+  });
 });
 
 function createService(input: {
@@ -325,7 +355,9 @@ class FakeReportUploadRepository implements ReportUploadRepository {
   private readonly vehicles = new Map<string, VehicleRecord>();
   private readonly fingerprints = new Map<string, FingerprintRecord>();
 
-  constructor(private readonly options: { returnNullFromUpsert?: boolean } = {}) {}
+  constructor(
+    private readonly options: { automaticGrantCount?: number; returnNullFromUpsert?: boolean } = {}
+  ) {}
 
   async findVehicleByVin(vin: string): Promise<VehicleRecord | null> {
     return this.vehicles.get(vin) ?? null;
@@ -349,7 +381,7 @@ class FakeReportUploadRepository implements ReportUploadRepository {
     const record = this.fingerprints.get(fingerprint) ?? {
       id: `fingerprint-${this.fingerprints.size + 1}`,
       fingerprint,
-      automaticGrantCount: 0
+      automaticGrantCount: this.options.automaticGrantCount ?? 0
     };
     this.fingerprints.set(fingerprint, record);
     return record;
