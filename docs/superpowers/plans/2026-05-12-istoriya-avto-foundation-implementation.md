@@ -105,11 +105,11 @@ Create `package.json`:
     "packages/*"
   ],
   "scripts": {
-    "dev:api": "bun --cwd apps/api run dev",
-    "dev:web": "bun --cwd apps/web run dev",
-    "test": "bun --cwd packages/shared test && bun --cwd apps/api test",
-    "typecheck": "bun --cwd packages/shared run typecheck && bun --cwd apps/api run typecheck && bun --cwd apps/web run typecheck",
-    "db:generate": "bun --cwd apps/api run db:generate"
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:web": "bun run --cwd apps/web dev",
+    "test": "bun run --cwd packages/shared test && bun run --cwd apps/api test",
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd apps/api typecheck && bun run --cwd apps/web typecheck",
+    "db:generate": "bun run --cwd apps/api db:generate"
   }
 }
 ```
@@ -230,8 +230,7 @@ Create `apps/api/tsconfig.json`:
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "types": ["bun-types"],
-    "baseUrl": "."
+    "types": ["bun-types"]
   },
   "include": ["src/**/*.ts", "drizzle.config.ts"]
 }
@@ -380,7 +379,7 @@ describe("detectSearchQuery", () => {
 Run:
 
 ```bash
-bun --cwd packages/shared test src/search-query.test.ts
+bun run --cwd packages/shared test src/search-query.test.ts
 ```
 
 Expected:
@@ -506,8 +505,8 @@ export { detectSearchQuery } from "./search-query";
 Run:
 
 ```bash
-bun --cwd packages/shared test
-bun --cwd packages/shared run typecheck
+bun run --cwd packages/shared test
+bun run --cwd packages/shared typecheck
 ```
 
 Expected:
@@ -604,7 +603,7 @@ describe("api app", () => {
 Run:
 
 ```bash
-bun --cwd apps/api test src/app.test.ts
+bun run --cwd apps/api test src/app.test.ts
 ```
 
 Expected:
@@ -727,8 +726,8 @@ export default app;
 Run:
 
 ```bash
-bun --cwd apps/api test
-bun --cwd apps/api run typecheck
+bun run --cwd apps/api test
+bun run --cwd apps/api typecheck
 ```
 
 Expected:
@@ -782,7 +781,7 @@ it("loads test-safe environment defaults", async () => {
 Run:
 
 ```bash
-bun --cwd apps/api test src/app.test.ts
+bun run --cwd apps/api test src/app.test.ts
 ```
 
 Expected:
@@ -1146,9 +1145,9 @@ export default defineConfig({
 Run:
 
 ```bash
-bun --cwd apps/api test
-bun --cwd apps/api run typecheck
-bun --cwd apps/api run db:generate
+bun run --cwd apps/api test
+bun run --cwd apps/api typecheck
+bun run --cwd apps/api db:generate
 ```
 
 Expected:
@@ -1320,7 +1319,7 @@ describe("evaluateReportForPoints", () => {
 Run:
 
 ```bash
-bun --cwd apps/api test src/modules/points/points-policy.test.ts
+bun run --cwd apps/api test src/modules/points/points-policy.test.ts
 ```
 
 Expected:
@@ -1441,8 +1440,8 @@ function getAgeInDays(from: Date, to: Date): number {
 Run:
 
 ```bash
-bun --cwd apps/api test
-bun --cwd apps/api run typecheck
+bun run --cwd apps/api test
+bun run --cwd apps/api typecheck
 ```
 
 Expected:
@@ -1904,8 +1903,8 @@ h1 {
 Run:
 
 ```bash
-bun --cwd apps/web run typecheck
-bun --cwd apps/web run build
+bun run --cwd apps/web typecheck
+bun run --cwd apps/web build
 ```
 
 Expected:
@@ -1944,7 +1943,7 @@ Run:
 ```bash
 bun run test
 bun run typecheck
-bun --cwd apps/web run build
+bun run --cwd apps/web build
 ```
 
 Expected:
@@ -2026,8 +2025,8 @@ The foundation slice is complete when all of these are true:
 - `bun install` succeeds.
 - `bun run test` succeeds.
 - `bun run typecheck` succeeds.
-- `bun --cwd apps/web run build` succeeds.
-- `bun --cwd apps/api run db:generate` creates Drizzle SQL migrations.
+- `bun run --cwd apps/web build` succeeds.
+- `bun run --cwd apps/api db:generate` creates Drizzle SQL migrations.
 - `GET /health` returns the expected JSON.
 - `POST /api/search/detect` detects VIN, госномер, supported listing URL, unsupported URL, and unknown input.
 - The web shell renders on mobile width without layout overlap.
