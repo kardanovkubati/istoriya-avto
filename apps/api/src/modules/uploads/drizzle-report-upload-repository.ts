@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { db } from "../../db/client";
 import {
   pointLedgerEntries,
@@ -33,7 +33,7 @@ export class DrizzleReportUploadRepository implements ReportUploadRepository {
         generatedAt: reportUploads.generatedAt
       })
       .from(reportUploads)
-      .where(eq(reportUploads.vehicleId, vehicle.id))
+      .where(and(eq(reportUploads.vehicleId, vehicle.id), isNotNull(reportUploads.generatedAt)))
       .orderBy(desc(reportUploads.generatedAt))
       .limit(1);
 
