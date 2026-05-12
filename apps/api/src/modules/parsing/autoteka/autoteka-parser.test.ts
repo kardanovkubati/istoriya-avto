@@ -29,4 +29,27 @@ describe("parseAutotekaReport", () => {
     expect(result.status).toBe("manual_review");
     expect(result.warnings.map((warning) => warning.code)).toContain("suspicious_report_structure");
   });
+
+  it("marks reports with multiple distinct VINs for manual review", () => {
+    const result = parseAutotekaReport(`
+      Отчет по автомобилю
+      VIN: XTA210990Y2765499
+      VIN: XTA210990Y2765400
+      Дата формирования отчета: 01.05.2026
+      Паспорт автомобиля
+      Марка: LADA
+      Модель: Granta
+      Год выпуска: 2021
+      История объявлений
+      15.04.2026 Москва цена 780 000 ₽ пробег 42 000 км
+      Проверки
+      ДТП не найдены
+      Расчеты ремонта не найдены
+      Ограничения не найдены
+      Залог не найден
+    `);
+
+    expect(result.status).toBe("manual_review");
+    expect(result.warnings.map((warning) => warning.code)).toContain("multiple_vins_found");
+  });
 });
