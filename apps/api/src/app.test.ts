@@ -52,6 +52,9 @@ describe("api app", () => {
   it("exposes report upload route", async () => {
     const response = await app.request("/api/uploads/report-pdf", {
       method: "POST",
+      headers: {
+        "content-length": "100"
+      },
       body: new FormData()
     });
 

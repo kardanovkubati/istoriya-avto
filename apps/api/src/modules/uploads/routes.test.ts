@@ -5,6 +5,50 @@ const VALID_USER_ID = "11111111-1111-4111-8111-111111111111";
 const VALID_GUEST_SESSION_ID = "22222222-2222-4222-8222-222222222222";
 
 describe("upload routes", () => {
+  it("requires a Content-Length header without calling ingestPdf", async () => {
+    const dependencies = createDependencies();
+    const routes = createUploadRoutes(dependencies);
+
+    const response = await routes.request("/report-pdf", {
+      method: "POST",
+      body: new FormData()
+    });
+
+    expect(response.status).toBe(411);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "upload_content_length_required",
+        message: "Для загрузки отчета требуется корректный Content-Length."
+      }
+    });
+    expect(dependencies.calls).toHaveLength(0);
+  });
+
+  it("requires a valid positive Content-Length header without calling ingestPdf", async () => {
+    const dependencies = createDependencies();
+    const routes = createUploadRoutes(dependencies);
+
+    for (const contentLength of ["not-a-number", "0", "-1", "1.5"]) {
+      const response = await routes.request("/report-pdf", {
+        method: "POST",
+        headers: {
+          "content-length": contentLength
+        },
+        body: new FormData()
+      });
+
+      expect(response.status).toBe(411);
+      expect(await response.json()).toEqual({
+        error: {
+          code: "upload_content_length_required",
+          message: "Для загрузки отчета требуется корректный Content-Length."
+        }
+      });
+    }
+
+    expect(dependencies.calls).toHaveLength(0);
+  });
+
   it("requires rights confirmation", async () => {
     const dependencies = createDependencies();
     const routes = createUploadRoutes(dependencies);
@@ -13,6 +57,9 @@ describe("upload routes", () => {
 
     const response = await routes.request("/report-pdf", {
       method: "POST",
+      headers: {
+        "content-length": "100"
+      },
       body: form
     });
 
@@ -35,6 +82,9 @@ describe("upload routes", () => {
 
     const response = await routes.request("/report-pdf", {
       method: "POST",
+      headers: {
+        "content-length": "100"
+      },
       body: form
     });
 
@@ -57,6 +107,9 @@ describe("upload routes", () => {
 
     const response = await routes.request("/report-pdf", {
       method: "POST",
+      headers: {
+        "content-length": "100"
+      },
       body: form
     });
 
@@ -95,6 +148,9 @@ describe("upload routes", () => {
 
     const response = await routes.request("/report-pdf", {
       method: "POST",
+      headers: {
+        "content-length": "3"
+      },
       body: form
     });
 
@@ -147,6 +203,9 @@ describe("upload routes", () => {
 
       const response = await routes.request("/report-pdf", {
         method: "POST",
+        headers: {
+          "content-length": "100"
+        },
         body: form
       });
 
@@ -171,6 +230,9 @@ describe("upload routes", () => {
 
     const response = await routes.request("/report-pdf", {
       method: "POST",
+      headers: {
+        "content-length": "100"
+      },
       body: form
     });
 

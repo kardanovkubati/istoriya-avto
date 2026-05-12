@@ -23,7 +23,19 @@ export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono
 
   routes.post("/report-pdf", async (context) => {
     const contentLength = parseContentLength(context.req.header("content-length"));
-    if (contentLength !== null && contentLength > dependencies.maxUploadBytes) {
+    if (contentLength === null) {
+      return context.json(
+        {
+          error: {
+            code: "upload_content_length_required",
+            message: "Для загрузки отчета требуется корректный Content-Length."
+          }
+        },
+        411
+      );
+    }
+
+    if (contentLength > dependencies.maxUploadBytes) {
       return reportFileTooLarge(context);
     }
 
@@ -142,7 +154,9 @@ function parseContentLength(value: string | undefined): number | null {
   if (value === undefined) return null;
 
   const contentLength = Number(value);
-  return Number.isInteger(contentLength) && Number.isFinite(contentLength) ? contentLength : null;
+  return Number.isInteger(contentLength) && Number.isFinite(contentLength) && contentLength > 0
+    ? contentLength
+    : null;
 }
 
 function reportFileTooLarge(context: Context) {
