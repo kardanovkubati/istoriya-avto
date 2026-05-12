@@ -10,7 +10,10 @@ export type PointsDecisionReason =
   | "report_older_than_180_days"
   | "aging_report_not_first_for_vin"
   | "missing_vin_or_generated_date"
+  | "future_report_generated_at"
+  | "invalid_parsed_key_block_count"
   | "insufficient_parsed_data"
+  | "invalid_fingerprint_grant_count"
   | "not_newer_than_current_report";
 
 export type EvaluateReportForPointsInput = {
@@ -41,10 +44,6 @@ export function evaluateReportForPoints(input: EvaluateReportForPointsInput): Po
     return deny("missing_vin_or_generated_date");
   }
 
-  if (input.parsedKeyBlockCount < MINIMUM_KEY_BLOCKS_FOR_AUTO_GRANT) {
-    return manualReview("insufficient_parsed_data");
-  }
-
   if (input.userHasEverReceivedPointForVin) {
     return deny("user_already_rewarded_for_vin");
   }
@@ -53,11 +52,34 @@ export function evaluateReportForPoints(input: EvaluateReportForPointsInput): Po
     return deny("user_already_rewarded_for_fingerprint");
   }
 
+  if (
+    !Number.isFinite(input.parsedKeyBlockCount) ||
+    !Number.isInteger(input.parsedKeyBlockCount) ||
+    input.parsedKeyBlockCount < 0
+  ) {
+    return manualReview("invalid_parsed_key_block_count");
+  }
+
+  if (input.parsedKeyBlockCount < MINIMUM_KEY_BLOCKS_FOR_AUTO_GRANT) {
+    return manualReview("insufficient_parsed_data");
+  }
+
+  if (
+    !Number.isFinite(input.automaticFingerprintGrantCount) ||
+    input.automaticFingerprintGrantCount < 0
+  ) {
+    return manualReview("invalid_fingerprint_grant_count");
+  }
+
   if (input.automaticFingerprintGrantCount >= MAX_AUTOMATIC_GRANTS_PER_FINGERPRINT) {
     return manualReview("fingerprint_auto_grant_limit_reached");
   }
 
   const reportAgeDays = getAgeInDays(input.reportGeneratedAt, input.now);
+
+  if (reportAgeDays < 0) {
+    return manualReview("future_report_generated_at");
+  }
 
   if (reportAgeDays > AGING_REPORT_MAX_DAYS) {
     return deny("report_older_than_180_days");

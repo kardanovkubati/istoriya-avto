@@ -123,4 +123,84 @@ describe("evaluateReportForPoints", () => {
       reason: "insufficient_parsed_data"
     });
   });
+
+  it("requires manual review for a future report generated date", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-13T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 3,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "future_report_generated_at"
+    });
+  });
+
+  it("requires manual review for NaN parsed key block count", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: Number.NaN,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "invalid_parsed_key_block_count"
+    });
+  });
+
+  it("denies duplicate VIN rewards before checking weak parsing quality", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 1,
+        isFirstReportForVin: false,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: true,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "deny",
+      points: 0,
+      reason: "user_already_rewarded_for_vin"
+    });
+  });
+
+  it("requires manual review for negative automatic fingerprint grant count", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 3,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: -1
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "invalid_fingerprint_grant_count"
+    });
+  });
 });
