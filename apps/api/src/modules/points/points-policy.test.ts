@@ -144,13 +144,17 @@ describe("evaluateReportForPoints", () => {
     });
   });
 
-  it("requires manual review for NaN parsed key block count", () => {
+  it.each([
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["negative", -1]
+  ])("requires manual review for %s parsed key block count", (_, parsedKeyBlockCount) => {
     expect(
       evaluateReportForPoints({
         now: NOW,
         reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
         hasVin: true,
-        parsedKeyBlockCount: Number.NaN,
+        parsedKeyBlockCount,
         isFirstReportForVin: true,
         isNewerThanCurrentVinReport: true,
         userHasEverReceivedPointForVin: false,
@@ -184,7 +188,11 @@ describe("evaluateReportForPoints", () => {
     });
   });
 
-  it("requires manual review for negative automatic fingerprint grant count", () => {
+  it.each([
+    ["negative", -1],
+    ["NaN", Number.NaN],
+    ["positive infinity", Number.POSITIVE_INFINITY]
+  ])("requires manual review for %s automatic fingerprint grant count", (_, automaticFingerprintGrantCount) => {
     expect(
       evaluateReportForPoints({
         now: NOW,
@@ -195,7 +203,7 @@ describe("evaluateReportForPoints", () => {
         isNewerThanCurrentVinReport: true,
         userHasEverReceivedPointForVin: false,
         userHasEverReceivedPointForFingerprint: false,
-        automaticFingerprintGrantCount: -1
+        automaticFingerprintGrantCount
       })
     ).toEqual({
       decision: "manual_review",
