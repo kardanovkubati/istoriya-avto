@@ -19,12 +19,29 @@ describe("detectSearchQuery", () => {
   });
 
   it("detects supported listing URLs", () => {
-    expect(detectSearchQuery("https://www.avito.ru/moskva/avtomobili/test_123")).toEqual({
-      kind: "listing_url",
-      normalized: "https://www.avito.ru/moskva/avtomobili/test_123",
-      original: "https://www.avito.ru/moskva/avtomobili/test_123",
-      host: "www.avito.ru"
-    });
+    const supportedUrls = [
+      {
+        input: "https://www.avito.ru/moskva/avtomobili/test_123",
+        host: "www.avito.ru"
+      },
+      {
+        input: "https://auto.ru/cars/used/sale/test/123/",
+        host: "auto.ru"
+      },
+      {
+        input: "https://auto.drom.ru/ulan-ude/isuzu/d-max/322002530.html",
+        host: "auto.drom.ru"
+      }
+    ];
+
+    for (const { input, host } of supportedUrls) {
+      expect(detectSearchQuery(input)).toEqual({
+        kind: "listing_url",
+        normalized: input,
+        original: input,
+        host
+      });
+    }
   });
 
   it("detects unsupported URLs", () => {

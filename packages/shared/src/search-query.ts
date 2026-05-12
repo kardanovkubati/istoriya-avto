@@ -23,6 +23,7 @@ const SUPPORTED_LISTING_HOSTS = [
   "www.avito.ru",
   "auto.ru",
   "www.auto.ru",
+  "auto.drom.ru",
   "drom.ru",
   "www.drom.ru"
 ] as const;
