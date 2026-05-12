@@ -67,7 +67,9 @@ describe("evaluateParsedReportForPoints", () => {
       evaluateParsedReportForPoints({
         parsedReport: {
           ...baseReport,
+          status: "manual_review",
           keyBlocks: ["vehicle_passport", "risk_checks"],
+          warnings: [{ code: "insufficient_key_blocks", message: "Missing key report blocks." }],
           qualityScore: 0.67
         },
         now: NOW,
@@ -80,7 +82,29 @@ describe("evaluateParsedReportForPoints", () => {
     ).toEqual({
       decision: "manual_review",
       points: 0,
-      reason: "insufficient_parsed_data"
+      reason: "parser_manual_review_required"
+    });
+  });
+
+  it("requires manual review when the parser marked the report for manual review", () => {
+    expect(
+      evaluateParsedReportForPoints({
+        parsedReport: {
+          ...baseReport,
+          status: "manual_review",
+          warnings: [{ code: "multiple_vins_found", message: "В отчете найдено несколько разных VIN." }]
+        },
+        now: NOW,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "parser_manual_review_required"
     });
   });
 });

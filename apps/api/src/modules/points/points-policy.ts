@@ -14,6 +14,7 @@ export type PointsDecisionReason =
   | "future_report_generated_at"
   | "invalid_parsed_key_block_count"
   | "insufficient_parsed_data"
+  | "parser_manual_review_required"
   | "invalid_fingerprint_grant_count"
   | "not_newer_than_current_report";
 

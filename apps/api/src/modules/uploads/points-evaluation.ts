@@ -12,6 +12,10 @@ export type EvaluateParsedReportForPointsInput = {
 };
 
 export function evaluateParsedReportForPoints(input: EvaluateParsedReportForPointsInput): PointsPolicyResult {
+  if (input.parsedReport.status === "manual_review") {
+    return { decision: "manual_review", points: 0, reason: "parser_manual_review_required" };
+  }
+
   return evaluateReportForPoints({
     now: input.now,
     reportGeneratedAt: input.parsedReport.generatedAt ? new Date(input.parsedReport.generatedAt) : null,
