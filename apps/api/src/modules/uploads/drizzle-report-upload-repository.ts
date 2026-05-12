@@ -15,6 +15,20 @@ import type {
   VehicleRecord
 } from "./report-upload-repository";
 
+type VehicleAttributeColumn =
+  | "make"
+  | "model"
+  | "year"
+  | "bodyType"
+  | "color"
+  | "engine"
+  | "transmission"
+  | "driveType";
+
+type VehicleConflictUpdate = Partial<Pick<typeof vehicles.$inferInsert, VehicleAttributeColumn>> & {
+  updatedAt: Date;
+};
+
 export class DrizzleReportUploadRepository implements ReportUploadRepository {
   async findVehicleByVin(vin: string): Promise<VehicleRecord | null> {
     const [vehicle] = await db
@@ -50,6 +64,18 @@ export class DrizzleReportUploadRepository implements ReportUploadRepository {
     }
 
     const now = new Date();
+    const updateSet: VehicleConflictUpdate = { updatedAt: now };
+    if (parsedReport.vehicle.make !== null) updateSet.make = parsedReport.vehicle.make;
+    if (parsedReport.vehicle.model !== null) updateSet.model = parsedReport.vehicle.model;
+    if (parsedReport.vehicle.year !== null) updateSet.year = parsedReport.vehicle.year;
+    if (parsedReport.vehicle.bodyType !== null) updateSet.bodyType = parsedReport.vehicle.bodyType;
+    if (parsedReport.vehicle.color !== null) updateSet.color = parsedReport.vehicle.color;
+    if (parsedReport.vehicle.engine !== null) updateSet.engine = parsedReport.vehicle.engine;
+    if (parsedReport.vehicle.transmission !== null) {
+      updateSet.transmission = parsedReport.vehicle.transmission;
+    }
+    if (parsedReport.vehicle.driveType !== null) updateSet.driveType = parsedReport.vehicle.driveType;
+
     const [vehicle] = await db
       .insert(vehicles)
       .values({
@@ -66,17 +92,7 @@ export class DrizzleReportUploadRepository implements ReportUploadRepository {
       })
       .onConflictDoUpdate({
         target: vehicles.vin,
-        set: {
-          make: parsedReport.vehicle.make,
-          model: parsedReport.vehicle.model,
-          year: parsedReport.vehicle.year,
-          bodyType: parsedReport.vehicle.bodyType,
-          color: parsedReport.vehicle.color,
-          engine: parsedReport.vehicle.engine,
-          transmission: parsedReport.vehicle.transmission,
-          driveType: parsedReport.vehicle.driveType,
-          updatedAt: now
-        }
+        set: updateSet
       })
       .returning({
         id: vehicles.id,
