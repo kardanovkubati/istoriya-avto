@@ -52,4 +52,49 @@ describe("parseAutotekaReport", () => {
     expect(result.status).toBe("manual_review");
     expect(result.warnings.map((warning) => warning.code)).toContain("multiple_vins_found");
   });
+
+  it("treats conflicting risk text as found", () => {
+    const result = parseAutotekaReport(`
+      Отчет по автомобилю
+      VIN: XTA210990Y2765499
+      Дата формирования отчета: 01.05.2026
+      Паспорт автомобиля
+      Марка: LADA
+      Модель: Granta
+      Год выпуска: 2021
+      История объявлений
+      15.04.2026 Москва цена 780 000 ₽ пробег 42 000 км
+      Проверки
+      ДТП не найдены
+      ДТП найдено
+      Расчеты ремонта не найдены
+      Ограничения не найдены
+      Залог не найден
+    `);
+
+    expect(result.riskFlags.accidents).toBe("found");
+  });
+
+  it("marks reports with impossible generated dates for manual review", () => {
+    const result = parseAutotekaReport(`
+      Отчет по автомобилю
+      VIN: XTA210990Y2765499
+      Дата формирования отчета: 31.02.2026
+      Паспорт автомобиля
+      Марка: LADA
+      Модель: Granta
+      Год выпуска: 2021
+      История объявлений
+      15.04.2026 Москва цена 780 000 ₽ пробег 42 000 км
+      Проверки
+      ДТП не найдены
+      Расчеты ремонта не найдены
+      Ограничения не найдены
+      Залог не найден
+    `);
+
+    expect(result.generatedAt).toBeNull();
+    expect(result.status).toBe("manual_review");
+    expect(result.warnings.map((warning) => warning.code)).toContain("missing_generated_at");
+  });
 });

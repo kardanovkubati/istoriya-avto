@@ -56,9 +56,26 @@ function normalizeText(text: string): string {
 function parseRuDate(value: string): string | null {
   const match = /(\d{2})\.(\d{2})\.(\d{4})/.exec(value);
   if (!match) return null;
-  const [, day, month, year] = match;
+  const day = match[1];
+  const month = match[2];
+  const year = match[3];
+  if (!day || !month || !year) return null;
+
   const date = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
-  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  if (!Number.isFinite(date.getTime())) return null;
+
+  const parsedDay = Number.parseInt(day, 10);
+  const parsedMonth = Number.parseInt(month, 10);
+  const parsedYear = Number.parseInt(year, 10);
+  if (
+    date.getUTCFullYear() !== parsedYear ||
+    date.getUTCMonth() + 1 !== parsedMonth ||
+    date.getUTCDate() !== parsedDay
+  ) {
+    return null;
+  }
+
+  return date.toISOString();
 }
 
 function parseInteger(value: string): number | null {
@@ -160,8 +177,8 @@ function parseMileageReadings(text: string): ParsedReport["mileageReadings"] {
 function parseRiskFlags(text: string): ParsedReport["riskFlags"] {
   return Object.fromEntries(
     Object.entries(RISK_RULES).map(([riskName, [notFoundPattern, foundPattern]]) => {
-      if (notFoundPattern.test(text)) return [riskName, "not_found"];
       if (foundPattern.test(text)) return [riskName, "found"];
+      if (notFoundPattern.test(text)) return [riskName, "not_found"];
       return [riskName, "unknown"];
     })
   ) as ParsedReport["riskFlags"];
