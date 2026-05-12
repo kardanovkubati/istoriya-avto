@@ -144,6 +144,46 @@ describe("evaluateReportForPoints", () => {
     });
   });
 
+  it("requires manual review for an invalid report generated date", () => {
+    expect(
+      evaluateReportForPoints({
+        now: NOW,
+        reportGeneratedAt: new Date("invalid"),
+        hasVin: true,
+        parsedKeyBlockCount: 3,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "invalid_report_date"
+    });
+  });
+
+  it("requires manual review for an invalid current date", () => {
+    expect(
+      evaluateReportForPoints({
+        now: new Date("invalid"),
+        reportGeneratedAt: new Date("2026-05-01T12:00:00.000Z"),
+        hasVin: true,
+        parsedKeyBlockCount: 3,
+        isFirstReportForVin: true,
+        isNewerThanCurrentVinReport: true,
+        userHasEverReceivedPointForVin: false,
+        userHasEverReceivedPointForFingerprint: false,
+        automaticFingerprintGrantCount: 0
+      })
+    ).toEqual({
+      decision: "manual_review",
+      points: 0,
+      reason: "invalid_report_date"
+    });
+  });
+
   it.each([
     ["NaN", Number.NaN],
     ["positive infinity", Number.POSITIVE_INFINITY],
@@ -191,7 +231,8 @@ describe("evaluateReportForPoints", () => {
   it.each([
     ["negative", -1],
     ["NaN", Number.NaN],
-    ["positive infinity", Number.POSITIVE_INFINITY]
+    ["positive infinity", Number.POSITIVE_INFINITY],
+    ["fractional", 2.5]
   ])("requires manual review for %s automatic fingerprint grant count", (_, automaticFingerprintGrantCount) => {
     expect(
       evaluateReportForPoints({

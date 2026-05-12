@@ -10,6 +10,7 @@ export type PointsDecisionReason =
   | "report_older_than_180_days"
   | "aging_report_not_first_for_vin"
   | "missing_vin_or_generated_date"
+  | "invalid_report_date"
   | "future_report_generated_at"
   | "invalid_parsed_key_block_count"
   | "insufficient_parsed_data"
@@ -44,6 +45,10 @@ export function evaluateReportForPoints(input: EvaluateReportForPointsInput): Po
     return deny("missing_vin_or_generated_date");
   }
 
+  if (!isValidDate(input.now) || !isValidDate(input.reportGeneratedAt)) {
+    return manualReview("invalid_report_date");
+  }
+
   if (input.userHasEverReceivedPointForVin) {
     return deny("user_already_rewarded_for_vin");
   }
@@ -66,6 +71,7 @@ export function evaluateReportForPoints(input: EvaluateReportForPointsInput): Po
 
   if (
     !Number.isFinite(input.automaticFingerprintGrantCount) ||
+    !Number.isInteger(input.automaticFingerprintGrantCount) ||
     input.automaticFingerprintGrantCount < 0
   ) {
     return manualReview("invalid_fingerprint_grant_count");
@@ -114,6 +120,10 @@ function deny(reason: PointsDecisionReason): PointsPolicyResult {
 
 function manualReview(reason: PointsDecisionReason): PointsPolicyResult {
   return { decision: "manual_review", points: 0, reason };
+}
+
+function isValidDate(date: Date): boolean {
+  return Number.isFinite(date.getTime());
 }
 
 function getAgeInDays(from: Date, to: Date): number {
