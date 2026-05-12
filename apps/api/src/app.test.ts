@@ -49,6 +49,20 @@ describe("api app", () => {
     });
   });
 
+  it("allows browser calls from localhost and 127.0.0.1 dev origins", async () => {
+    for (const origin of ["http://localhost:5173", "http://127.0.0.1:5173"]) {
+      const response = await app.request("/api/search/detect", {
+        method: "OPTIONS",
+        headers: {
+          origin,
+          "access-control-request-method": "POST"
+        }
+      });
+
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+    }
+  });
+
   it("loads test-safe environment defaults", async () => {
     const { env } = await import("./env");
 

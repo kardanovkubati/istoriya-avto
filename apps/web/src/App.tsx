@@ -143,15 +143,22 @@ function App() {
         <article className="action-card">
           <FileUp aria-hidden="true" size={22} />
           <div>
-            <h2>Загрузить документы</h2>
-            <p>Добавьте фото СТС или ПТС, когда будет готов модуль проверки.</p>
+            <h2>Загрузить отчет</h2>
+            <p>PDF или публичная ссылка на отчет пополнят базу и могут дать 1 балл.</p>
           </div>
         </article>
         <article className="action-card">
           <BadgeCheck aria-hidden="true" size={22} />
           <div>
-            <h2>Следить за отчетом</h2>
-            <p>Получайте статус проверки и сохраняйте найденные автомобили.</p>
+            <h2>Открытые отчеты</h2>
+            <p>Доступ к купленному отчету по VIN остается навсегда.</p>
+          </div>
+        </article>
+        <article className="action-card">
+          <Bell aria-hidden="true" size={22} />
+          <div>
+            <h2>Уведомления</h2>
+            <p>Telegram и Max сообщат, когда появятся новые данные.</p>
           </div>
         </article>
       </section>
