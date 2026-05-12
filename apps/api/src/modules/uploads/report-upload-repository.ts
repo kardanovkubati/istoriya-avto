@@ -24,7 +24,7 @@ export type CreateReportUploadInput = {
   originalObjectKey: string;
   generatedAt: Date | null;
   parserVersion: string;
-  parseQualityScore: number;
+  parseQualityScore: string;
   rawData: {
     storage: StoredObject;
     parseResult: ParsedReport;
@@ -45,7 +45,7 @@ export type CreatedReportUpload = {
 
 export interface ReportUploadRepository {
   findVehicleByVin(vin: string): Promise<VehicleRecord | null>;
-  upsertVehicleFromParsedReport(parsedReport: ParsedReport): Promise<VehicleRecord>;
+  upsertVehicleFromParsedReport(parsedReport: ParsedReport): Promise<VehicleRecord | null>;
   findOrCreateFingerprint(fingerprint: string): Promise<FingerprintRecord>;
   userHasReceivedPointForVin(userId: string, vehicleId: string): Promise<boolean>;
   userHasReceivedPointForFingerprint(userId: string, fingerprintId: string): Promise<boolean>;

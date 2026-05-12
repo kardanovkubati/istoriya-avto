@@ -105,6 +105,7 @@ describe("ReportUploadService", () => {
     expect(repository.createdUploads[0]?.status).toBe("parsed");
     expect(repository.createdUploads[0]?.rawData.parseResult.vin).toBe("XTA210990Y2765499");
     expect(repository.createdUploads[0]?.rawData.pointsEvaluation.decision).toBe("grant");
+    expect(repository.createdUploads[0]?.parseQualityScore).toBe("1.00");
     expect(repository.createdUploads[0]?.originalObjectKey).toBe("report-originals/1.pdf");
     expect(repository.createdUploads[0]?.rawData.storage.expiresAt.toISOString()).toBe(
       "2026-06-11T12:00:00.000Z"
@@ -302,7 +303,7 @@ class FakeReportUploadRepository implements ReportUploadRepository {
     return this.vehicles.get(vin) ?? null;
   }
 
-  async upsertVehicleFromParsedReport(report: ParsedReport): Promise<VehicleRecord> {
+  async upsertVehicleFromParsedReport(report: ParsedReport): Promise<VehicleRecord | null> {
     if (report.vin === null) throw new Error("Cannot upsert vehicle without VIN.");
 
     const vehicle = this.vehicles.get(report.vin) ?? {

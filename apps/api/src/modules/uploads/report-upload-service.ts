@@ -132,7 +132,7 @@ export class ReportUploadService {
       originalObjectKey: storedObject.key,
       generatedAt,
       parserVersion: parsedReport.parserVersion,
-      parseQualityScore: parsedReport.qualityScore,
+      parseQualityScore: parsedReport.qualityScore.toFixed(2),
       rawData: {
         storage: storedObject,
         parseResult: parsedReport,
