@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "../../db/client";
 import {
   vehicleFactConflicts,
@@ -47,7 +47,7 @@ export class DrizzleVehicleReportRepository implements VehicleReportRepository {
       await tx.insert(vehicleObservations).values(
         input.observations.map((observation) => ({
           vehicleId: observation.vehicleId,
-          reportUploadId: observation.reportUploadId,
+          reportUploadId: input.reportUploadId,
           factKind: observation.factKind,
           factKey: observation.factKey,
           valueHash: observation.valueHash,
@@ -110,21 +110,41 @@ export class DrizzleVehicleReportRepository implements VehicleReportRepository {
 
       if (input.conflicts.length === 0) return;
 
-      await tx.insert(vehicleFactConflicts).values(
-        input.conflicts.map((conflict) => ({
-          vehicleId: conflict.vehicleId,
-          factKind: conflict.factKind,
-          factKey: conflict.factKey,
-          severity: conflict.severity,
-          status: conflict.status,
-          values: conflict.values
-        }))
-      );
+      const now = new Date();
+
+      for (const conflict of input.conflicts) {
+        await tx
+          .insert(vehicleFactConflicts)
+          .values({
+            vehicleId: input.vehicleId,
+            factKind: conflict.factKind,
+            factKey: conflict.factKey,
+            severity: conflict.severity,
+            status: conflict.status,
+            values: conflict.values as Record<string, unknown>[],
+            detectedAt: now,
+            updatedAt: now
+          })
+          .onConflictDoUpdate({
+            target: [
+              vehicleFactConflicts.vehicleId,
+              vehicleFactConflicts.factKind,
+              vehicleFactConflicts.factKey
+            ],
+            targetWhere: sql`${vehicleFactConflicts.status} = 'open'`,
+            set: {
+              severity: conflict.severity,
+              status: conflict.status,
+              values: conflict.values as Record<string, unknown>[],
+              detectedAt: now,
+              updatedAt: now
+            }
+          });
+      }
     });
   }
 
   async saveReportSnapshot(input: SaveVehicleReportSnapshotInput): Promise<void> {
-    const now = new Date();
     const values = {
       vehicleId: input.vehicleId,
       previewData: input.preview as unknown as Record<string, unknown>,
@@ -132,7 +152,7 @@ export class DrizzleVehicleReportRepository implements VehicleReportRepository {
       sourceUploadCount: input.sourceUploadCount,
       latestReportGeneratedAt: input.latestReportGeneratedAt,
       rebuiltAt: input.rebuiltAt,
-      updatedAt: now
+      updatedAt: input.rebuiltAt
     };
 
     await db

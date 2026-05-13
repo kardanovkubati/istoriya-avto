@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -208,12 +209,9 @@ export const vehicleFactConflicts = pgTable(
     ...timestamps
   },
   (table) => ({
-    vehicleFactUnique: uniqueIndex("vehicle_fact_conflicts_vehicle_fact_unique").on(
-      table.vehicleId,
-      table.factKind,
-      table.factKey,
-      table.status
-    )
+    vehicleFactUnique: uniqueIndex("vehicle_fact_conflicts_vehicle_fact_unique")
+      .on(table.vehicleId, table.factKind, table.factKey)
+      .where(sql`${table.status} = 'open'`)
   })
 );
 

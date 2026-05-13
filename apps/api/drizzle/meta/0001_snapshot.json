@@ -1347,15 +1347,10 @@
               "isExpression": false,
               "asc": true,
               "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
             }
           ],
           "isUnique": true,
+          "where": "\"vehicle_fact_conflicts\".\"status\" = 'open'",
           "concurrently": false,
           "method": "btree",
           "with": {}
