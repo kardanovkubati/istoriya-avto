@@ -1,7 +1,7 @@
 # История Авто: MVP Roadmap
 
-Дата: 2026-05-12
-Статус: рабочая дорожная карта после foundation-слоя
+Дата: 2026-05-13
+Статус: рабочая дорожная карта после Milestone 1
 
 ## Текущее состояние
 
@@ -13,11 +13,26 @@
 - Shared query detection: VIN, госномер, Avito/Auto.ru/Drom URLs.
 - PostgreSQL/Drizzle schema и первая миграция.
 - Points policy с тестами и edge-case hardening.
-- Проверки на `master`: `bun run test`, `bun run typecheck`, `bun run --cwd apps/web build`, `bun run --cwd apps/api db:generate`.
 
-Главная следующая цель: перейти от оболочки к реальным данным, то есть научиться принимать и парсить первые отчеты Автотеки.
+Готов Milestone 1:
+
+- Upload API `POST /api/uploads/report-pdf` для текстовых PDF.
+- Локальное private storage abstraction для оригиналов отчетов с retention metadata.
+- PDF text extraction без OCR через `pdfjs-dist`.
+- `report_fingerprint` по нормализованному тексту отчета.
+- Autoteka parser v1 с 3 обезличенными text/golden fixtures.
+- Минимальный parse result: VIN, дата отчета, паспорт авто, объявления/пробеги, рисковые блоки.
+- `report_upload` creation через ingestion service и Drizzle repository.
+- `manual_review` для пустого текстового слоя, частичных, подозрительных и policy-risk отчетов.
+- Подключение points policy к parse result без начисления пользовательского баланса и без ledger mutation.
+- Upload route hardening: обязательный `Content-Length`, max-size guard, PDF magic-byte check, запрет client-supplied identity fields.
+- Проверки на `master`: `bun run test`, `bun run typecheck`, `bun run --cwd apps/api db:generate`.
+
+Главная следующая цель: перейти от отдельных загрузок к одному сводному отчету по VIN, то есть реализовать Milestone 2: Vehicle Aggregation And Report Read Model.
 
 ## Milestone 1: Report Ingestion And Autoteka Parser
+
+Статус: готов на `master` 2026-05-13.
 
 Цель: пользователь или админ может загрузить текстовый PDF Автотеки, система извлекает VIN, дату формирования, базовые блоки и создает `report_upload`.
 
@@ -27,7 +42,7 @@
 - Локальное/S3-compatible storage abstraction для оригинала.
 - PDF text extraction без OCR.
 - `report_fingerprint`.
-- Autoteka parser v1 для 3-5 реальных отчетов.
+- Autoteka parser v1 для первых обезличенных fixtures.
 - Parser fixtures и golden tests.
 - Минимальный parse result: VIN, дата отчета, паспорт авто, объявления/пробеги, рисковые блоки если найдены.
 - Подключение points policy к результату парсинга без реального пользовательского UI начисления.
@@ -41,10 +56,10 @@
 
 Exit criteria:
 
-- Есть минимум 3 обезличенных fixture PDF/текстовых дампа.
+- Есть 3 обезличенных текстовых fixtures с golden JSON.
 - Parser tests проходят стабильно.
-- Невалидный/частичный отчет уходит в статус `manual_review`.
-- `bun run test` и `bun run typecheck` зеленые.
+- Невалидный/частичный/подозрительный отчет уходит в статус `manual_review`.
+- `bun run test`, `bun run typecheck`, `bun run --cwd apps/api db:generate` зеленые на `master`.
 
 ## Milestone 2: Vehicle Aggregation And Report Read Model
 
@@ -208,11 +223,11 @@ Exit criteria:
 
 ## Recommended Next Session
 
-Следующая сессия должна начать с Milestone 1.
+Следующая сессия должна начать с Milestone 2.
 
 Первый рабочий результат следующей сессии:
 
-1. Создать implementation plan для `Report Ingestion And Autoteka Parser`.
-2. Согласовать, где лежат реальные тестовые PDF и как их обезличивать.
-3. Реализовать upload/parsing foundation маленькими шагами через tests-first.
-
+1. Создать implementation plan для `Vehicle Aggregation And Report Read Model`.
+2. Спроектировать observation/read-model слой поверх `report_upload.raw_data.parseResult`.
+3. Реализовать нормализацию фактов и merge service маленькими tests-first задачами.
+4. Получить первый сводный JSON по VIN без упоминания брендов источников в пользовательском response.
