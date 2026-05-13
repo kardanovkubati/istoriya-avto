@@ -15,6 +15,13 @@
       "when": 1778686247202,
       "tag": "0001_secret_nekra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778709611865,
+      "tag": "0002_brown_doctor_spectrum",
+      "breakpoints": true
     }
   ]
 }
