@@ -163,6 +163,76 @@ export const reportUploads = pgTable(
   })
 );
 
+export const vehicleObservations = pgTable(
+  "vehicle_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vehicleId: uuid("vehicle_id").notNull().references(() => vehicles.id),
+    reportUploadId: uuid("report_upload_id").notNull().references(() => reportUploads.id),
+    factKind: text("fact_kind").notNull(),
+    factKey: text("fact_key").notNull(),
+    valueHash: text("value_hash").notNull(),
+    value: jsonb("value").$type<Record<string, unknown>>().notNull(),
+    observedAt: timestamp("observed_at", { withTimezone: true }),
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull(),
+    qualityScore: numeric("quality_score", { precision: 5, scale: 2 }),
+    ...timestamps
+  },
+  (table) => ({
+    vehicleFactIdx: index("vehicle_observations_vehicle_fact_idx").on(
+      table.vehicleId,
+      table.factKind,
+      table.factKey
+    ),
+    uploadFactValueUnique: uniqueIndex("vehicle_observations_upload_fact_value_unique").on(
+      table.reportUploadId,
+      table.factKind,
+      table.factKey,
+      table.valueHash
+    )
+  })
+);
+
+export const vehicleFactConflicts = pgTable(
+  "vehicle_fact_conflicts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vehicleId: uuid("vehicle_id").notNull().references(() => vehicles.id),
+    factKind: text("fact_kind").notNull(),
+    factKey: text("fact_key").notNull(),
+    severity: text("severity").notNull(),
+    status: text("status").notNull().default("open"),
+    values: jsonb("values").$type<Record<string, unknown>[]>().notNull().default([]),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps
+  },
+  (table) => ({
+    vehicleFactUnique: uniqueIndex("vehicle_fact_conflicts_vehicle_fact_unique").on(
+      table.vehicleId,
+      table.factKind,
+      table.factKey
+    )
+  })
+);
+
+export const vehicleReportSnapshots = pgTable(
+  "vehicle_report_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    vehicleId: uuid("vehicle_id").notNull().references(() => vehicles.id),
+    previewData: jsonb("preview_data").$type<Record<string, unknown>>().notNull(),
+    reportData: jsonb("report_data").$type<Record<string, unknown>>().notNull(),
+    sourceUploadCount: integer("source_upload_count").notNull(),
+    latestReportGeneratedAt: timestamp("latest_report_generated_at", { withTimezone: true }),
+    rebuiltAt: timestamp("rebuilt_at", { withTimezone: true }).notNull(),
+    ...timestamps
+  },
+  (table) => ({
+    vehicleUnique: uniqueIndex("vehicle_report_snapshots_vehicle_unique").on(table.vehicleId)
+  })
+);
+
 export const pointLedgerEntries = pgTable(
   "point_ledger_entries",
   {

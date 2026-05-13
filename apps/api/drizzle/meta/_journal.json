@@ -8,6 +8,13 @@
       "when": 1778614268852,
       "tag": "0000_condemned_wolverine",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778686247202,
+      "tag": "0001_secret_nekra",
+      "breakpoints": true
     }
   ]
 }
