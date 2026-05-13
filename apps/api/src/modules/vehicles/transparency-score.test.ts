@@ -21,6 +21,43 @@ describe("calculateTransparencyScore", () => {
     });
   });
 
+  it("scores reports that are exactly 90 days old", () => {
+    expect(
+      calculateTransparencyScore({
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        vin: "XTA210990Y2765499",
+        latestReportGeneratedAt: "2026-02-12T00:00:00.000Z",
+        keyBlocks: ["vehicle_passport", "listings_or_mileage", "risk_checks"],
+        sourceUploadCount: 1,
+        riskStatuses: { accidents: "not_found", restrictions: "not_found" },
+        conflicts: []
+      })
+    ).toEqual({
+      kind: "score",
+      value: 4.7,
+      max: 5,
+      label: "История в целом прозрачна"
+    });
+  });
+
+  it("returns insufficient data when the latest report is older than 90 days by 1 ms", () => {
+    expect(
+      calculateTransparencyScore({
+        now: new Date("2026-05-13T00:00:00.000Z"),
+        vin: "XTA210990Y2765499",
+        latestReportGeneratedAt: "2026-02-11T23:59:59.999Z",
+        keyBlocks: ["vehicle_passport", "listings_or_mileage", "risk_checks"],
+        sourceUploadCount: 1,
+        riskStatuses: { accidents: "not_found", restrictions: "not_found" },
+        conflicts: []
+      })
+    ).toEqual({
+      kind: "insufficient_data",
+      message: "Недостаточно данных для оценки.",
+      reasons: ["latest_report_is_stale"]
+    });
+  });
+
   it("returns insufficient data without all three key blocks", () => {
     expect(
       calculateTransparencyScore({

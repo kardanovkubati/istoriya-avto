@@ -66,5 +66,5 @@ function reportAgeDays(generatedAt: string | null, now: Date): number {
   if (generatedAt === null) return Number.POSITIVE_INFINITY;
   const date = new Date(generatedAt);
   if (!Number.isFinite(date.getTime())) return Number.POSITIVE_INFINITY;
-  return Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  return (now.getTime() - date.getTime()) / 86_400_000;
 }
