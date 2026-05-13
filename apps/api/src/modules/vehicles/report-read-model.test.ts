@@ -17,6 +17,8 @@ describe("vehicle report read model helpers", () => {
         }
       })
     ).not.toThrow();
+    expect(() => assertNoSourceBrandLeak({ city: "Аэродромная" })).not.toThrow();
+    expect(() => assertNoSourceBrandLeak({ text: "синдром" })).not.toThrow();
   });
 
   it("fails if a user-facing response contains third-party source names or internal source fields", () => {
@@ -31,6 +33,7 @@ describe("vehicle report read model helpers", () => {
       { text: "Источник: Авито" },
       { text: "Источник: Auto.ru" },
       { text: "Источник: Авто.ру" },
+      { text: "Дром" },
       { text: "Источник: Дром" },
       { text: "Источник: Drom" }
     ];
@@ -192,12 +195,168 @@ describe("buildVehicleReadModels", () => {
       );
     }
   });
+
+  it("chooses a deterministic latest listing when observedAt is tied", () => {
+    const result = buildVehicleReadModels({
+      now: new Date("2026-05-13T10:00:00.000Z"),
+      vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" },
+      observations: [
+        observation(
+          "listing",
+          "listing",
+          {
+            observedAt: "2026-04-15T00:00:00.000Z",
+            priceRub: 700000,
+            mileageKm: 45000,
+            city: "Москва"
+          },
+          {
+            id: "listing-1",
+            reportedAt: "2026-05-01T00:00:00.000Z",
+            acceptedAt: "2026-05-13T10:00:00.000Z"
+          }
+        ),
+        observation(
+          "listing",
+          "listing",
+          {
+            observedAt: "2026-04-15T00:00:00.000Z",
+            priceRub: 800000,
+            mileageKm: 43000,
+            city: "Казань"
+          },
+          {
+            id: "listing-2",
+            reportedAt: "2026-05-02T00:00:00.000Z",
+            acceptedAt: "2026-05-13T10:00:00.000Z"
+          }
+        ),
+        observation(
+          "listing",
+          "listing",
+          {
+            observedAt: "2026-04-15T00:00:00.000Z",
+            priceRub: 900000,
+            mileageKm: 41000,
+            city: "Тула"
+          },
+          {
+            id: "listing-3",
+            reportedAt: "2026-05-02T00:00:00.000Z",
+            acceptedAt: "2026-05-13T11:00:00.000Z"
+          }
+        )
+      ],
+      conflicts: []
+    });
+
+    expect(result.preview.lastListing).toEqual({
+      observedAt: "2026-04-15T00:00:00.000Z",
+      priceRub: 900000,
+      mileageKm: 41000,
+      city: "Тула"
+    });
+  });
+
+  it("warns only after the exact ninety day freshness boundary", () => {
+    const cases = [
+      {
+        now: "2026-03-31T00:00:00.000Z",
+        expectedWarning: null
+      },
+      {
+        now: "2026-03-31T00:00:00.001Z",
+        expectedWarning: "Данные могли измениться после даты последнего отчета."
+      },
+      {
+        now: "2026-03-31T01:00:00.000Z",
+        expectedWarning: "Данные могли измениться после даты последнего отчета."
+      }
+    ];
+
+    for (const { now, expectedWarning } of cases) {
+      const result = buildVehicleReadModels({
+        now: new Date(now),
+        vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" },
+        observations: [
+          observation(
+            "identifier",
+            "vin",
+            { vin: "XTA210990Y2765499" },
+            { reportedAt: "2025-12-31T00:00:00.000Z" }
+          )
+        ],
+        conflicts: []
+      });
+
+      expect(result.report.summary.freshnessWarning).toBe(expectedWarning);
+    }
+  });
+
+  it("orders mileage readings deterministically when observedAt is tied", () => {
+    const result = buildVehicleReadModels({
+      now: new Date("2026-05-13T10:00:00.000Z"),
+      vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" },
+      observations: [
+        observation(
+          "mileage",
+          "mileage",
+          {
+            observedAt: "2026-04-15T00:00:00.000Z",
+            mileageKm: 43000,
+            context: "second"
+          },
+          {
+            id: "mileage-2",
+            reportedAt: "2026-05-02T00:00:00.000Z",
+            acceptedAt: "2026-05-13T11:00:00.000Z"
+          }
+        ),
+        observation(
+          "mileage",
+          "mileage",
+          {
+            observedAt: "2026-04-15T00:00:00.000Z",
+            mileageKm: 41000,
+            context: "first"
+          },
+          {
+            id: "mileage-1",
+            reportedAt: "2026-05-01T00:00:00.000Z",
+            acceptedAt: "2026-05-13T10:00:00.000Z"
+          }
+        ),
+        observation(
+          "mileage",
+          "mileage",
+          {
+            observedAt: "2026-04-15T00:00:00.000Z",
+            mileageKm: 42000,
+            context: "third"
+          },
+          {
+            id: "mileage-3",
+            reportedAt: "2026-05-02T00:00:00.000Z",
+            acceptedAt: "2026-05-13T12:00:00.000Z"
+          }
+        )
+      ],
+      conflicts: []
+    });
+
+    expect(result.report.mileage.readings.map((reading) => reading.context)).toEqual([
+      "first",
+      "second",
+      "third"
+    ]);
+  });
 });
 
 function observation(
   factKind: NormalizedVehicleObservation["factKind"],
   factKey: string,
-  value: Record<string, unknown>
+  value: Record<string, unknown>,
+  overrides: Partial<NormalizedVehicleObservation> = {}
 ): NormalizedVehicleObservation {
   return {
     id: `${factKind}-${factKey}`,
@@ -210,7 +369,8 @@ function observation(
     observedAt: (value.observedAt as string | null) ?? "2026-05-01T00:00:00.000Z",
     reportedAt: "2026-05-01T00:00:00.000Z",
     acceptedAt: "2026-05-13T10:00:00.000Z",
-    qualityScore: 1
+    qualityScore: 1,
+    ...overrides
   };
 }
 

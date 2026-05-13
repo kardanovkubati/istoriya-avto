@@ -124,8 +124,15 @@ export type BuildVehicleReadModelsResult = {
   report: VehicleFullReportReadModel;
 };
 
-const SOURCE_LEAK_PATTERN =
-  /(sourceKind|parserVersion|originalObjectKey|source_kind|parser_version|original_object_key|autoteka|автотек|авито|auto\.ru|авто\.ру|дром|drom)/i;
+const SOURCE_LEAK_PATTERNS = [
+  /(sourceKind|parserVersion|originalObjectKey|source_kind|parser_version|original_object_key)/,
+  /(autoteka|автотек|auto\.ru|авто\.ру)/i,
+  /(^|[^\p{L}\p{N}_])авито($|[^\p{L}\p{N}_])/iu,
+  /(^|[^\p{L}\p{N}_])дром($|[^\p{L}\p{N}_])/iu,
+  /(^|[^A-Za-z0-9_])drom($|[^A-Za-z0-9_])/i
+] as const;
+
+const FRESHNESS_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 const PASSPORT_FIELDS = [
   "make",
@@ -232,7 +239,7 @@ export function maskVinForPreview(vin: string): string {
 
 export function assertNoSourceBrandLeak(value: unknown): void {
   const serialized = JSON.stringify(value);
-  if (SOURCE_LEAK_PATTERN.test(serialized)) {
+  if (SOURCE_LEAK_PATTERNS.some((pattern) => pattern.test(serialized))) {
     throw new Error("source_brand_leak");
   }
 }
@@ -274,7 +281,7 @@ function selectPassport(
 function selectListings(observations: NormalizedVehicleObservation[]): VehicleListingReadModel[] {
   return observations
     .filter((observation) => observation.factKind === "listing")
-    .sort((left, right) => compareNullableIsoDesc(left.observedAt, right.observedAt))
+    .sort(compareNewestListingObservationFirst)
     .map((observation) => ({
       observedAt: observation.observedAt,
       priceRub: numberOrNull(observation.value.priceRub),
@@ -288,7 +295,7 @@ function selectMileageReadings(
 ): VehicleMileageReadingReadModel[] {
   return observations
     .filter((observation) => observation.factKind === "mileage" && typeof observation.value.mileageKm === "number")
-    .sort((left, right) => compareNullableIsoAsc(left.observedAt, right.observedAt))
+    .sort(compareMileageObservationOldestFirst)
     .map((observation) => ({
       observedAt: observation.observedAt,
       mileageKm: observation.value.mileageKm as number,
@@ -359,7 +366,7 @@ function reportCountText(count: number): string {
 }
 
 function freshnessWarning(latestReportGeneratedAt: string | null, now: Date): string | null {
-  if (latestReportGeneratedAt !== null && reportAgeDays(latestReportGeneratedAt, now) <= 90) return null;
+  if (latestReportGeneratedAt !== null && !isOlderThanFreshnessWindow(latestReportGeneratedAt, now)) return null;
   return "Данные могли измениться после даты последнего отчета.";
 }
 
@@ -385,7 +392,32 @@ function compareNewestObservationFirst(
   return (
     compareNullableIsoDesc(left.reportedAt, right.reportedAt) ||
     compareNullableIsoDesc(left.observedAt, right.observedAt) ||
-    left.valueHash.localeCompare(right.valueHash)
+    compareNullableIsoDesc(left.acceptedAt, right.acceptedAt) ||
+    observationStableKey(left).localeCompare(observationStableKey(right))
+  );
+}
+
+function compareNewestListingObservationFirst(
+  left: NormalizedVehicleObservation,
+  right: NormalizedVehicleObservation
+): number {
+  return (
+    compareNullableIsoDesc(left.observedAt, right.observedAt) ||
+    compareNullableIsoDesc(left.reportedAt, right.reportedAt) ||
+    compareNullableIsoDesc(left.acceptedAt, right.acceptedAt) ||
+    observationStableKey(left).localeCompare(observationStableKey(right))
+  );
+}
+
+function compareMileageObservationOldestFirst(
+  left: NormalizedVehicleObservation,
+  right: NormalizedVehicleObservation
+): number {
+  return (
+    compareNullableIsoAsc(left.observedAt, right.observedAt) ||
+    compareNullableIsoAsc(left.reportedAt, right.reportedAt) ||
+    compareNullableIsoAsc(left.acceptedAt, right.acceptedAt) ||
+    observationStableKey(left).localeCompare(observationStableKey(right))
   );
 }
 
@@ -404,10 +436,10 @@ function latestIso(values: Array<string | null>): string | null {
   return values.filter((value): value is string => value !== null).sort().at(-1) ?? null;
 }
 
-function reportAgeDays(generatedAt: string, now: Date): number {
+function isOlderThanFreshnessWindow(generatedAt: string, now: Date): boolean {
   const date = new Date(generatedAt);
-  if (!Number.isFinite(date.getTime())) return Number.POSITIVE_INFINITY;
-  return Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+  if (!Number.isFinite(date.getTime())) return true;
+  return now.getTime() - date.getTime() > FRESHNESS_WINDOW_MS;
 }
 
 function formatRussianDate(iso: string): string {
@@ -432,4 +464,8 @@ function numberOrNull(value: unknown): number | null {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+function observationStableKey(observation: NormalizedVehicleObservation): string {
+  return observation.id ?? observation.valueHash;
 }
