@@ -105,22 +105,26 @@ function detectMileageRollbackConflicts(
   ).flatMap((group) => {
     const sorted = [...group].sort(compareOldestFirst);
     const rollbackObservations = new Set<NormalizedVehicleObservation>();
+    let priorMaxMileage: number | null = null;
+    let priorMaxObservations: NormalizedVehicleObservation[] = [];
 
-    for (let index = 1; index < sorted.length; index += 1) {
-      const previous = sorted[index - 1];
-      const current = sorted[index];
-      if (previous === undefined || current === undefined) continue;
+    for (const sameDateObservations of groupByObservedAt(sorted)) {
+      const currentDateMax = maxMileageObservations(sameDateObservations);
 
-      if (
-        previous.observedAt !== null &&
-        current.observedAt !== null &&
-        current.observedAt > previous.observedAt &&
-        typeof previous.value.mileageKm === "number" &&
-        typeof current.value.mileageKm === "number" &&
-        current.value.mileageKm < previous.value.mileageKm
-      ) {
-        rollbackObservations.add(previous);
-        rollbackObservations.add(current);
+      if (priorMaxMileage !== null) {
+        for (const current of sameDateObservations) {
+          if (typeof current.value.mileageKm !== "number" || current.value.mileageKm >= priorMaxMileage) continue;
+
+          for (const priorMaxObservation of priorMaxObservations) {
+            rollbackObservations.add(priorMaxObservation);
+          }
+          rollbackObservations.add(current);
+        }
+      }
+
+      if (currentDateMax.mileageKm !== null && (priorMaxMileage === null || currentDateMax.mileageKm > priorMaxMileage)) {
+        priorMaxMileage = currentDateMax.mileageKm;
+        priorMaxObservations = currentDateMax.observations;
       }
     }
 
@@ -140,6 +144,49 @@ function detectMileageRollbackConflicts(
       }
     ];
   });
+}
+
+function groupByObservedAt(
+  observations: NormalizedVehicleObservation[]
+): NormalizedVehicleObservation[][] {
+  const groups: NormalizedVehicleObservation[][] = [];
+
+  for (const observation of observations) {
+    const lastGroup = groups[groups.length - 1];
+    const lastObservation = lastGroup?.[0];
+
+    if (lastGroup !== undefined && lastObservation?.observedAt === observation.observedAt) {
+      lastGroup.push(observation);
+      continue;
+    }
+
+    groups.push([observation]);
+  }
+
+  return groups;
+}
+
+function maxMileageObservations(
+  observations: NormalizedVehicleObservation[]
+): { mileageKm: number | null; observations: NormalizedVehicleObservation[] } {
+  let mileageKm: number | null = null;
+  let maxObservations: NormalizedVehicleObservation[] = [];
+
+  for (const observation of observations) {
+    if (typeof observation.value.mileageKm !== "number") continue;
+
+    if (mileageKm === null || observation.value.mileageKm > mileageKm) {
+      mileageKm = observation.value.mileageKm;
+      maxObservations = [observation];
+      continue;
+    }
+
+    if (observation.value.mileageKm === mileageKm) {
+      maxObservations.push(observation);
+    }
+  }
+
+  return { mileageKm, observations: maxObservations };
 }
 
 function groupObservations(

@@ -181,6 +181,61 @@ describe("detectVehicleFactConflicts", () => {
     expect(conflicts).toEqual([]);
   });
 
+  it("compares mileage readings against the maximum mileage from earlier dates", () => {
+    const conflicts = detectVehicleFactConflicts([
+      observation({
+        id: "obs-1",
+        factKind: "mileage",
+        factKey: "mileage",
+        value: { observedAt: "2026-01-01T00:00:00.000Z", mileageKm: 100000, context: "listing" },
+        observedAt: "2026-01-01T00:00:00.000Z",
+        reportedAt: "2026-01-01T00:00:00.000Z"
+      }),
+      observation({
+        id: "obs-2",
+        factKind: "mileage",
+        factKey: "mileage",
+        value: { observedAt: "2026-01-01T00:00:00.000Z", mileageKm: 90000, context: "listing" },
+        observedAt: "2026-01-01T00:00:00.000Z",
+        reportedAt: "2026-01-02T00:00:00.000Z"
+      }),
+      observation({
+        id: "obs-3",
+        factKind: "mileage",
+        factKey: "mileage",
+        value: { observedAt: "2026-02-01T00:00:00.000Z", mileageKm: 95000, context: "listing" },
+        observedAt: "2026-02-01T00:00:00.000Z",
+        reportedAt: "2026-02-01T00:00:00.000Z"
+      })
+    ]);
+
+    expect(conflicts).toEqual([
+      {
+        vehicleId: "vehicle-1",
+        factKind: "mileage",
+        factKey: "mileage_rollback",
+        severity: "critical",
+        status: "open",
+        values: [
+          {
+            observationIds: ["obs-3"],
+            value: { observedAt: "2026-02-01T00:00:00.000Z", mileageKm: 95000, context: "listing" },
+            observedAt: "2026-02-01T00:00:00.000Z",
+            reportedAt: "2026-02-01T00:00:00.000Z",
+            isLatest: true
+          },
+          {
+            observationIds: ["obs-1"],
+            value: { observedAt: "2026-01-01T00:00:00.000Z", mileageKm: 100000, context: "listing" },
+            observedAt: "2026-01-01T00:00:00.000Z",
+            reportedAt: "2026-01-01T00:00:00.000Z",
+            isLatest: false
+          }
+        ]
+      }
+    ]);
+  });
+
   it("groups semantically identical values with different key insertion order", () => {
     const conflicts = detectVehicleFactConflicts([
       observation({
