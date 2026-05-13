@@ -67,6 +67,18 @@ describe("api app", () => {
     });
   });
 
+  it("exposes vehicle routes with VIN validation", async () => {
+    const response = await app.request("/api/vehicles/not-a-vin/preview");
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "invalid_vin",
+        message: "Передайте корректный VIN."
+      }
+    });
+  });
+
   it("allows browser calls from localhost and 127.0.0.1 dev origins", async () => {
     for (const origin of ["http://localhost:5173", "http://127.0.0.1:5173"]) {
       const response = await app.request("/api/search/detect", {
