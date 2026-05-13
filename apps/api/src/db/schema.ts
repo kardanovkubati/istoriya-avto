@@ -38,6 +38,11 @@ export const complaintStatus = pgEnum("complaint_status", [
   "resolved",
   "rejected"
 ]);
+export const listingSnapshotStatus = pgEnum("listing_snapshot_status", [
+  "captured",
+  "unavailable",
+  "manual_review"
+]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -229,6 +234,30 @@ export const vehicleReportSnapshots = pgTable(
   },
   (table) => ({
     vehicleUnique: uniqueIndex("vehicle_report_snapshots_vehicle_unique").on(table.vehicleId)
+  })
+);
+
+export const listingSnapshots = pgTable(
+  "listing_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceKind: text("source_kind").notNull(),
+    listingId: text("listing_id").notNull(),
+    canonicalUrl: text("canonical_url").notNull(),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+    status: listingSnapshotStatus("status").notNull(),
+    originalObjectKey: text("original_object_key"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(),
+    originalExpiresAt: timestamp("original_expires_at", { withTimezone: true }),
+    normalizedData: jsonb("normalized_data").$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps
+  },
+  (table) => ({
+    listingIdentityUnique: uniqueIndex("listing_snapshots_identity_unique").on(
+      table.sourceKind,
+      table.listingId
+    ),
+    listingVehicleIdx: index("listing_snapshots_vehicle_idx").on(table.vehicleId)
   })
 );
 
