@@ -1,7 +1,7 @@
 # История Авто: MVP Roadmap
 
 Дата: 2026-05-13
-Статус: рабочая дорожная карта после Milestone 1
+Статус: рабочая дорожная карта после Milestone 2
 
 ## Текущее состояние
 
@@ -28,7 +28,7 @@
 - Upload route hardening: обязательный `Content-Length`, max-size guard, PDF magic-byte check, запрет client-supplied identity fields.
 - Проверки на `master`: `bun run test`, `bun run typecheck`, `bun run --cwd apps/api db:generate`.
 
-Главная следующая цель: перейти от отдельных загрузок к одному сводному отчету по VIN, то есть реализовать Milestone 2: Vehicle Aggregation And Report Read Model.
+Главная следующая цель: запустить пользовательский путь поиска, preview и unlock flow на данных Milestone 2.
 
 ## Milestone 1: Report Ingestion And Autoteka Parser
 
@@ -63,7 +63,19 @@ Exit criteria:
 
 ## Milestone 2: Vehicle Aggregation And Report Read Model
 
+Статус: готов к merge на `master` 2026-05-13.
+
 Цель: из одного или нескольких `report_upload` строится один сводный отчет по VIN.
+
+Готово:
+
+- Observation model поверх `report_uploads.raw_data.parseResult`.
+- Нормализация фактов по VIN из parsed uploads.
+- Merge/aggregation service с rebuild snapshot после успешной загрузки.
+- Хранение конфликтов фактов без молчаливого затирания.
+- Preview и full report API.
+- Базовая оценка прозрачности истории.
+- Source-brand leak guard для пользовательского report response.
 
 Входит:
 
@@ -223,11 +235,11 @@ Exit criteria:
 
 ## Recommended Next Session
 
-Следующая сессия должна начать с Milestone 2.
+Следующая сессия должна начать с Milestone 3.
 
 Первый рабочий результат следующей сессии:
 
-1. Создать implementation plan для `Vehicle Aggregation And Report Read Model`.
-2. Спроектировать observation/read-model слой поверх `report_upload.raw_data.parseResult`.
-3. Реализовать нормализацию фактов и merge service маленькими tests-first задачами.
-4. Получить первый сводный JSON по VIN без упоминания брендов источников в пользовательском response.
+1. Создать implementation plan для `Search, Preview, And Unlock Flow`.
+2. Спроектировать search API по VIN/госномеру/ссылке поверх текущего read model.
+3. Связать preview карточки с существующим `/api/vehicles/:vin/preview`.
+4. Подготовить unlock boundary без реального списания баллов до Milestone 4.
