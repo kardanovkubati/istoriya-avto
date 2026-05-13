@@ -11,6 +11,15 @@ import {
 import { parseSupportedListingUrl } from "./listing-url";
 import type { SearchRepository } from "./search-repository";
 
+export const LISTING_HTML_FETCH_TIMEOUT_MS = 8_000;
+export const LISTING_HTML_FETCH_MAX_BYTES = 2_000_000;
+
+type FetchListingHtmlOptions = {
+  fetchImpl?: (url: string, init?: RequestInit) => Promise<Response>;
+  timeoutMs?: number;
+  maxBytes?: number;
+};
+
 export type SearchServiceOptions = {
   repository: SearchRepository;
   storage: ObjectStorage;
@@ -235,16 +244,82 @@ function addDays(date: Date, days: number): Date {
 }
 
 async function defaultFetchListingHtml(url: string): Promise<string> {
-  const response = await fetch(url, {
-    redirect: "follow",
-    headers: {
-      "user-agent": "IstoriyaAvtoBot/0.1"
+  return fetchListingHtmlWithLimits(url);
+}
+
+export async function fetchListingHtmlWithLimits(
+  url: string,
+  options: FetchListingHtmlOptions = {}
+): Promise<string> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const timeoutMs = options.timeoutMs ?? LISTING_HTML_FETCH_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? LISTING_HTML_FETCH_MAX_BYTES;
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), timeoutMs);
+
+  try {
+    const response = await fetchImpl(url, {
+      signal: abortController.signal,
+      redirect: "follow",
+      headers: {
+        "user-agent": "IstoriyaAvtoBot/0.1"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`listing_fetch_failed:${response.status}`);
     }
-  });
 
-  if (!response.ok) {
-    throw new Error(`listing_fetch_failed:${response.status}`);
+    const contentType = response.headers.get("content-type") ?? "";
+
+    if (!contentType.toLowerCase().includes("text/html")) {
+      throw new Error("listing_fetch_non_html");
+    }
+
+    const contentLength = response.headers.get("content-length");
+
+    if (contentLength !== null) {
+      const sizeBytes = Number(contentLength);
+
+      if (Number.isFinite(sizeBytes) && sizeBytes > maxBytes) {
+        throw new Error("listing_fetch_too_large");
+      }
+    }
+
+    if (response.body === null) {
+      return "";
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        break;
+      }
+
+      totalBytes += value.byteLength;
+
+      if (totalBytes > maxBytes) {
+        throw new Error("listing_fetch_too_large");
+      }
+
+      chunks.push(value);
+    }
+
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+
+    return new TextDecoder().decode(bytes);
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return response.text();
 }

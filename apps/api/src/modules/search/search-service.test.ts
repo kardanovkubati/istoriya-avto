@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "bun:test";
 import type { PutObjectInput, StoredObject } from "../storage/object-storage";
 import type { VehiclePreviewReadModel } from "../vehicles/report-read-model";
-import { SearchService } from "./search-service";
+import { fetchListingHtmlWithLimits, SearchService } from "./search-service";
 import type {
   SaveListingSnapshotInput,
   SearchRepository,
@@ -218,6 +218,108 @@ describe("SearchService", () => {
       expect(result.candidates).toEqual([]);
       expect(result.emptyState?.code).toBe("listing_snapshot_unavailable");
     }
+  });
+});
+
+describe("fetchListingHtmlWithLimits", () => {
+  it("returns HTML for a text/html response within the byte limit", async () => {
+    const fetchImpl = async () =>
+      new Response("<html><body>ok</body></html>", {
+        status: 200,
+        headers: { "content-type": "Text/HTML; charset=utf-8" }
+      });
+
+    const html = await fetchListingHtmlWithLimits("https://example.test/listing", {
+      fetchImpl,
+      maxBytes: 1024
+    });
+
+    expect(html).toBe("<html><body>ok</body></html>");
+  });
+
+  it("rejects non-html content types before reading the body", async () => {
+    let bodyAccessed = false;
+    const fetchImpl = async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        get body() {
+          bodyAccessed = true;
+          return new ReadableStream();
+        }
+      }) as Response;
+
+    await expect(
+      fetchListingHtmlWithLimits("https://example.test/listing", { fetchImpl })
+    ).rejects.toThrow("listing_fetch_non_html");
+    expect(bodyAccessed).toBe(false);
+  });
+
+  it("rejects content-length greater than the byte limit before reading the body", async () => {
+    let bodyAccessed = false;
+    const fetchImpl = async () =>
+      ({
+        ok: true,
+        status: 200,
+        headers: new Headers({
+          "content-type": "text/html",
+          "content-length": "1025"
+        }),
+        get body() {
+          bodyAccessed = true;
+          return new ReadableStream();
+        }
+      }) as Response;
+
+    await expect(
+      fetchListingHtmlWithLimits("https://example.test/listing", {
+        fetchImpl,
+        maxBytes: 1024
+      })
+    ).rejects.toThrow("listing_fetch_too_large");
+    expect(bodyAccessed).toBe(false);
+  });
+
+  it("rejects streamed bodies when bytes exceed the limit without content-length", async () => {
+    const encoder = new TextEncoder();
+    const fetchImpl = async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode("<html>"));
+            controller.enqueue(encoder.encode("too large"));
+            controller.close();
+          }
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "text/html" }
+        }
+      );
+
+    await expect(
+      fetchListingHtmlWithLimits("https://example.test/listing", {
+        fetchImpl,
+        maxBytes: 8
+      })
+    ).rejects.toThrow("listing_fetch_too_large");
+  });
+
+  it("aborts through the timeout signal", async () => {
+    const fetchImpl = (_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+          once: true
+        });
+      });
+
+    await expect(
+      fetchListingHtmlWithLimits("https://example.test/listing", {
+        fetchImpl,
+        timeoutMs: 1
+      })
+    ).rejects.toThrow("aborted");
   });
 });
 
