@@ -158,6 +158,29 @@ describe("detectVehicleFactConflicts", () => {
     expect(conflicts).toEqual([]);
   });
 
+  it("does not create mileage rollback conflicts for readings with the same observedAt", () => {
+    const conflicts = detectVehicleFactConflicts([
+      observation({
+        id: "obs-1",
+        factKind: "mileage",
+        factKey: "mileage",
+        value: { observedAt: "2026-01-01T00:00:00.000Z", mileageKm: 70000, context: "listing" },
+        observedAt: "2026-01-01T00:00:00.000Z",
+        reportedAt: "2026-01-01T00:00:00.000Z"
+      }),
+      observation({
+        id: "obs-2",
+        factKind: "mileage",
+        factKey: "mileage",
+        value: { observedAt: "2026-01-01T00:00:00.000Z", mileageKm: 45000, context: "listing" },
+        observedAt: "2026-01-01T00:00:00.000Z",
+        reportedAt: "2026-02-01T00:00:00.000Z"
+      })
+    ]);
+
+    expect(conflicts).toEqual([]);
+  });
+
   it("groups semantically identical values with different key insertion order", () => {
     const conflicts = detectVehicleFactConflicts([
       observation({

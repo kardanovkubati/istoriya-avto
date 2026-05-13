@@ -112,6 +112,9 @@ function detectMileageRollbackConflicts(
       if (previous === undefined || current === undefined) continue;
 
       if (
+        previous.observedAt !== null &&
+        current.observedAt !== null &&
+        current.observedAt > previous.observedAt &&
         typeof previous.value.mileageKm === "number" &&
         typeof current.value.mileageKm === "number" &&
         current.value.mileageKm < previous.value.mileageKm
