@@ -32,13 +32,13 @@ export type SearchCandidatePreview = Omit<VehiclePreviewReadModel, "photo" | "ve
 export type SearchCandidate = {
   id: string;
   kind: "vehicle" | "listing";
-  match: "exact_vin" | "listing";
+  match: "exact_vin" | "internal_plate" | "listing_snapshot";
   reportStatus: "available" | "missing";
   preview: SearchCandidatePreview;
   unlock: {
     status: "locked" | "unavailable";
     canRequestUnlock: boolean;
-    warning: string | null;
+    warning: string;
   };
 };
 
@@ -66,7 +66,7 @@ export type ListingSnapshotPublicData = {
 };
 
 type CreateVehicleCandidateInput = {
-  match: "exact_vin";
+  match: "exact_vin" | "internal_plate";
   preview: VehiclePreviewReadModel;
 };
 
@@ -81,6 +81,7 @@ type CreateListingCandidateInput = {
 
 const UNLOCK_WARNING =
   "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается.";
+const UNAVAILABLE_LISTING_WARNING = "По этому объявлению отчета пока нет.";
 
 const SOURCE_LEAK_PATTERNS = [
   /(sourceKind|source_kind|parserVersion|parser_version|originalObjectKey|original_object_key)/,
@@ -111,7 +112,7 @@ export function createListingCandidate(input: CreateListingCandidateInput): Sear
   const candidate: SearchCandidate = {
     id: `listing:${input.listingId}`,
     kind: "listing",
-    match: "listing",
+    match: "listing_snapshot",
     reportStatus: input.reportAvailable ? "available" : "missing",
     preview: {
       vehicleId: input.vehicleId,
@@ -125,7 +126,7 @@ export function createListingCandidate(input: CreateListingCandidateInput): Sear
       engine: input.snapshot.engine,
       transmission: input.snapshot.transmission,
       driveType: input.snapshot.driveType,
-      photo: input.snapshot.photos[0] ?? null,
+      photo: firstSafePhoto(input.snapshot.photos),
       lastListing: {
         observedAt: input.observedAt,
         priceRub: input.snapshot.priceRub,
@@ -189,6 +190,23 @@ export function assertSafeSearchResponse(value: unknown): void {
   }
 }
 
+function firstSafePhoto(photos: CandidatePreviewPhoto[]): CandidatePreviewPhoto | null {
+  return photos.find(isSafeSearchValue) ?? null;
+}
+
+function isSafeSearchValue(value: unknown): boolean {
+  try {
+    assertSafeSearchResponse(value);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message === "search_response_leak") {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
 function lockedUnlock(): SearchCandidate["unlock"] {
   return {
     status: "locked",
@@ -201,7 +219,7 @@ function unavailableUnlock(): SearchCandidate["unlock"] {
   return {
     status: "unavailable",
     canRequestUnlock: false,
-    warning: null
+    warning: UNAVAILABLE_LISTING_WARNING
   };
 }
 

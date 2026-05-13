@@ -49,6 +49,21 @@ describe("api app", () => {
     });
   });
 
+  it("exposes search results route", async () => {
+    const response = await app.request("/api/search", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ query: "not a useful query" })
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.candidates).toEqual([]);
+    expect(body.emptyState.code).toBe("unsupported_query");
+  });
+
   it("exposes report upload route", async () => {
     const response = await app.request("/api/uploads/report-pdf", {
       method: "POST",

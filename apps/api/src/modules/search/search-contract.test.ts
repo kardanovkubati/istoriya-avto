@@ -51,6 +51,21 @@ describe("search result contract", () => {
     });
   });
 
+  it("creates a locked internal plate vehicle candidate", () => {
+    const candidate = createVehicleCandidate({
+      match: "internal_plate",
+      preview
+    });
+
+    expect(candidate.match).toBe("internal_plate");
+    expect(candidate.unlock).toEqual({
+      status: "locked",
+      canRequestUnlock: true,
+      warning:
+        "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+    });
+  });
+
   it("creates a listing-only candidate without exposing a plate or source label", () => {
     const candidate = createListingCandidate({
       sourceKind: "avito",
@@ -78,8 +93,78 @@ describe("search result contract", () => {
 
     expect(candidate.preview.vinMasked).toBeNull();
     expect(JSON.stringify(candidate)).not.toMatch(/plate|госномер|source|avito|авито/i);
+    expect(candidate.match).toBe("listing_snapshot");
     expect(candidate.reportStatus).toBe("missing");
-    expect(candidate.unlock.canRequestUnlock).toBe(false);
+    expect(candidate.unlock).toEqual({
+      status: "unavailable",
+      canRequestUnlock: false,
+      warning: "По этому объявлению отчета пока нет."
+    });
+  });
+
+  it("uses the first source-safe listing photo", () => {
+    const candidate = createListingCandidate({
+      sourceKind: "avito",
+      listingId: "1234567890",
+      observedAt: "2026-05-14T10:00:00.000Z",
+      vehicleId: null,
+      reportAvailable: false,
+      snapshot: {
+        vin: null,
+        title: "LADA Granta, 2021",
+        make: "LADA",
+        model: "Granta",
+        year: 2021,
+        bodyType: null,
+        color: null,
+        engine: null,
+        transmission: null,
+        driveType: null,
+        priceRub: 780000,
+        mileageKm: 42000,
+        city: "Москва",
+        photos: [
+          { url: "https://10.img.avito.st/image.jpg", alt: "Фото автомобиля" },
+          { url: "https://static.example.test/photo.jpg", alt: "Фото автомобиля" }
+        ]
+      }
+    });
+
+    expect(candidate.preview.photo).toEqual({
+      url: "https://static.example.test/photo.jpg",
+      alt: "Фото автомобиля"
+    });
+  });
+
+  it("omits listing photos when all photo metadata is source-branded", () => {
+    const candidate = createListingCandidate({
+      sourceKind: "avito",
+      listingId: "1234567890",
+      observedAt: "2026-05-14T10:00:00.000Z",
+      vehicleId: null,
+      reportAvailable: false,
+      snapshot: {
+        vin: null,
+        title: "LADA Granta, 2021",
+        make: "LADA",
+        model: "Granta",
+        year: 2021,
+        bodyType: null,
+        color: null,
+        engine: null,
+        transmission: null,
+        driveType: null,
+        priceRub: 780000,
+        mileageKm: 42000,
+        city: "Москва",
+        photos: [
+          { url: "https://10.img.avito.st/image.jpg", alt: "Фото автомобиля" },
+          { url: "https://static.example.test/photo.jpg", alt: "Фото Авито" }
+        ]
+      }
+    });
+
+    expect(candidate.preview.photo).toBeNull();
   });
 
   it("returns a neutral empty state for missing reports", () => {
