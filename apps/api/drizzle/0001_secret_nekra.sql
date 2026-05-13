@@ -43,7 +43,7 @@ ALTER TABLE "vehicle_fact_conflicts" ADD CONSTRAINT "vehicle_fact_conflicts_vehi
 ALTER TABLE "vehicle_observations" ADD CONSTRAINT "vehicle_observations_vehicle_id_vehicles_id_fk" FOREIGN KEY ("vehicle_id") REFERENCES "public"."vehicles"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "vehicle_observations" ADD CONSTRAINT "vehicle_observations_report_upload_id_report_uploads_id_fk" FOREIGN KEY ("report_upload_id") REFERENCES "public"."report_uploads"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "vehicle_report_snapshots" ADD CONSTRAINT "vehicle_report_snapshots_vehicle_id_vehicles_id_fk" FOREIGN KEY ("vehicle_id") REFERENCES "public"."vehicles"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "vehicle_fact_conflicts_vehicle_fact_unique" ON "vehicle_fact_conflicts" USING btree ("vehicle_id","fact_kind","fact_key");--> statement-breakpoint
+CREATE UNIQUE INDEX "vehicle_fact_conflicts_vehicle_fact_unique" ON "vehicle_fact_conflicts" USING btree ("vehicle_id","fact_kind","fact_key","status");--> statement-breakpoint
 CREATE INDEX "vehicle_observations_vehicle_fact_idx" ON "vehicle_observations" USING btree ("vehicle_id","fact_kind","fact_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "vehicle_observations_upload_fact_value_unique" ON "vehicle_observations" USING btree ("report_upload_id","fact_kind","fact_key","value_hash");--> statement-breakpoint
 CREATE UNIQUE INDEX "vehicle_report_snapshots_vehicle_unique" ON "vehicle_report_snapshots" USING btree ("vehicle_id");

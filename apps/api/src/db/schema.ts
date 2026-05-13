@@ -211,7 +211,8 @@ export const vehicleFactConflicts = pgTable(
     vehicleFactUnique: uniqueIndex("vehicle_fact_conflicts_vehicle_fact_unique").on(
       table.vehicleId,
       table.factKind,
-      table.factKey
+      table.factKey,
+      table.status
     )
   })
 );
