@@ -164,6 +164,34 @@ describe("buildVehicleReadModels", () => {
       }
     ]);
   });
+
+  it("uses Russian plural forms for report counts in history basis text", () => {
+    const cases = [
+      { sourceUploadCount: 2, phrase: "2 загруженных отчета" },
+      { sourceUploadCount: 3, phrase: "3 загруженных отчета" },
+      { sourceUploadCount: 4, phrase: "4 загруженных отчета" },
+      { sourceUploadCount: 5, phrase: "5 загруженных отчетов" },
+      { sourceUploadCount: 11, phrase: "11 загруженных отчетов" },
+      { sourceUploadCount: 12, phrase: "12 загруженных отчетов" },
+      { sourceUploadCount: 14, phrase: "14 загруженных отчетов" },
+      { sourceUploadCount: 21, phrase: "21 загруженного отчета" }
+    ];
+
+    for (const { sourceUploadCount, phrase } of cases) {
+      const result = buildVehicleReadModels({
+        now: new Date("2026-05-13T10:00:00.000Z"),
+        vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" },
+        observations: Array.from({ length: sourceUploadCount }, (_, index) =>
+          reportUploadObservation(`upload-${index + 1}`)
+        ),
+        conflicts: []
+      });
+
+      expect(result.report.summary.historyBasisText).toBe(
+        `История составлена на основе ${phrase}. Последнее обновление: 01.05.2026.`
+      );
+    }
+  });
 });
 
 function observation(
@@ -180,6 +208,22 @@ function observation(
     valueHash: `${factKind}-${factKey}-hash`,
     value,
     observedAt: (value.observedAt as string | null) ?? "2026-05-01T00:00:00.000Z",
+    reportedAt: "2026-05-01T00:00:00.000Z",
+    acceptedAt: "2026-05-13T10:00:00.000Z",
+    qualityScore: 1
+  };
+}
+
+function reportUploadObservation(reportUploadId: string): NormalizedVehicleObservation {
+  return {
+    id: `identifier-vin-${reportUploadId}`,
+    vehicleId: "vehicle-1",
+    reportUploadId,
+    factKind: "identifier",
+    factKey: "vin",
+    valueHash: `identifier-vin-${reportUploadId}-hash`,
+    value: { vin: "XTA210990Y2765499" },
+    observedAt: "2026-05-01T00:00:00.000Z",
     reportedAt: "2026-05-01T00:00:00.000Z",
     acceptedAt: "2026-05-13T10:00:00.000Z",
     qualityScore: 1

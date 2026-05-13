@@ -343,10 +343,19 @@ function selectUpdateHistory(
 }
 
 function historyBasisText(sourceUploadCount: number, latestReportGeneratedAt: string | null): string {
-  const uploadText =
-    sourceUploadCount === 1 ? "1 загруженного отчета" : `${sourceUploadCount} загруженных отчетов`;
+  const uploadText = reportCountText(sourceUploadCount);
   const latestText = latestReportGeneratedAt === null ? "нет данных" : formatRussianDate(latestReportGeneratedAt);
   return `История составлена на основе ${uploadText}. Последнее обновление: ${latestText}.`;
+}
+
+function reportCountText(count: number): string {
+  const lastTwoDigits = count % 100;
+  const lastDigit = count % 10;
+
+  if (lastTwoDigits >= 11 && lastTwoDigits <= 14) return `${count} загруженных отчетов`;
+  if (lastDigit === 1) return `${count} загруженного отчета`;
+  if (lastDigit >= 2 && lastDigit <= 4) return `${count} загруженных отчета`;
+  return `${count} загруженных отчетов`;
 }
 
 function freshnessWarning(latestReportGeneratedAt: string | null, now: Date): string | null {
