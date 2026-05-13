@@ -12,6 +12,7 @@ export type VehicleAggregationServiceOptions = {
 export type RebuildFromParsedUploadInput = {
   vehicleId: string;
   reportUploadId: string;
+  acceptedAt: Date;
   parsedReport: ParsedReport;
 };
 
@@ -33,7 +34,7 @@ export class VehicleAggregationService {
     const observations = normalizeParsedReportToObservations({
       vehicleId: input.vehicleId,
       reportUploadId: input.reportUploadId,
-      acceptedAt: now.toISOString(),
+      acceptedAt: input.acceptedAt.toISOString(),
       parsedReport: input.parsedReport
     });
 

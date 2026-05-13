@@ -59,6 +59,7 @@ const baseParsedReport: ParsedReport = {
 describe("VehicleAggregationService", () => {
   it("rebuildFromParsedUpload normalizes parsed upload, stores observations and conflicts, and saves a read snapshot", async () => {
     const now = new Date("2026-05-13T10:00:00.000Z");
+    const acceptedAt = new Date("2026-05-12T09:30:00.000Z");
     const repository = new FakeVehicleReportRepository({
       vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" }
     });
@@ -67,6 +68,7 @@ describe("VehicleAggregationService", () => {
     await service.rebuildFromParsedUpload({
       vehicleId: "vehicle-1",
       reportUploadId: "upload-1",
+      acceptedAt,
       parsedReport: baseParsedReport
     });
 
@@ -78,7 +80,7 @@ describe("VehicleAggregationService", () => {
     expect(repository.replaceObservationInputs[0]?.observations[0]).toMatchObject({
       vehicleId: "vehicle-1",
       reportUploadId: "upload-1",
-      acceptedAt: "2026-05-13T10:00:00.000Z"
+      acceptedAt: "2026-05-12T09:30:00.000Z"
     });
     expect(repository.replaceConflictInputs).toEqual([{ vehicleId: "vehicle-1", conflicts: [] }]);
     expect(repository.savedSnapshots).toHaveLength(1);
@@ -122,11 +124,13 @@ describe("VehicleAggregationService", () => {
     await service.rebuildFromParsedUpload({
       vehicleId: "vehicle-1",
       reportUploadId: "upload-1",
+      acceptedAt: new Date("2026-05-12T09:30:00.000Z"),
       parsedReport: baseParsedReport
     });
     await service.rebuildFromParsedUpload({
       vehicleId: "vehicle-1",
       reportUploadId: "upload-2",
+      acceptedAt: new Date("2026-05-12T11:00:00.000Z"),
       parsedReport: {
         ...baseParsedReport,
         generatedAt: "2026-05-10T00:00:00.000Z",
@@ -174,6 +178,28 @@ describe("VehicleAggregationService", () => {
         ]
       }
     });
+  });
+
+  it("rejects manual review reports without repository writes", async () => {
+    const repository = new FakeVehicleReportRepository({
+      vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" }
+    });
+    const service = new VehicleAggregationService({
+      repository,
+      now: () => new Date("2026-05-13T10:00:00.000Z")
+    });
+
+    await expect(
+      service.rebuildFromParsedUpload({
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        acceptedAt: new Date("2026-05-12T09:30:00.000Z"),
+        parsedReport: { ...baseParsedReport, status: "manual_review" }
+      })
+    ).rejects.toThrow("parsed_report_required");
+    expect(repository.replaceObservationInputs).toEqual([]);
+    expect(repository.replaceConflictInputs).toEqual([]);
+    expect(repository.savedSnapshots).toEqual([]);
   });
 });
 
