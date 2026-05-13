@@ -80,7 +80,7 @@ describe("vehicle routes", () => {
     const dependencies = createDependencies({
       findFullReportByVin: async () => ({
         ...fullReportReadModel(),
-        sourceKind: "Автотека"
+        sourceKind: "Avito"
       }) as VehicleFullReportReadModel
     });
     const routes = createVehicleRoutes(dependencies);
@@ -88,6 +88,12 @@ describe("vehicle routes", () => {
     const response = await routes.request(`/${VALID_VIN}/report`);
 
     expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "internal_error",
+        message: "Внутренняя ошибка сервиса."
+      }
+    });
   });
 });
 

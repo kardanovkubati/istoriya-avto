@@ -127,6 +127,7 @@ export type BuildVehicleReadModelsResult = {
 const SOURCE_LEAK_PATTERNS = [
   /(sourceKind|parserVersion|originalObjectKey|source_kind|parser_version|original_object_key)/,
   /(autoteka|автотек|auto\.ru|авто\.ру)/i,
+  /(^|[^A-Za-z0-9_])avito($|[^A-Za-z0-9_])/i,
   /(^|[^\p{L}\p{N}_])авито($|[^\p{L}\p{N}_])/iu,
   /(^|[^\p{L}\p{N}_])дром($|[^\p{L}\p{N}_])/iu,
   /(^|[^A-Za-z0-9_])drom($|[^A-Za-z0-9_])/i
@@ -309,9 +310,13 @@ function selectRisks(observations: NormalizedVehicleObservation[]): RiskMap {
   ) as RiskMap;
 
   for (const risk of RISK_FIELDS) {
-    const observation = observations
+    const riskObservations = observations
       .filter((candidate) => candidate.factKind === "risk_flag" && candidate.factKey === risk)
-      .sort(compareNewestObservationFirst)[0];
+      .filter((candidate) => isRiskStatus(candidate.value.status))
+      .sort(compareNewestObservationFirst);
+    const observation =
+      riskObservations.find((candidate) => candidate.value.status !== "unknown") ??
+      riskObservations[0];
     if (observation === undefined || !isRiskStatus(observation.value.status)) continue;
 
     risks[risk] = {

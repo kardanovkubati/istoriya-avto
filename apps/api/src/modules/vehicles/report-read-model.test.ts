@@ -31,6 +31,7 @@ describe("vehicle report read model helpers", () => {
       { original_object_key: "report-originals/1.json" },
       { text: "Факт получен из Автотеки" },
       { text: "Источник: Авито" },
+      { text: "Источник: Avito" },
       { text: "Источник: Auto.ru" },
       { text: "Источник: Авто.ру" },
       { text: "Дром" },
@@ -166,6 +167,31 @@ describe("buildVehicleReadModels", () => {
         ]
       }
     ]);
+  });
+
+  it("does not let newer unknown risk checks hide earlier concrete risk facts", () => {
+    const result = buildVehicleReadModels({
+      now: new Date("2026-05-13T10:00:00.000Z"),
+      vehicle: { id: "vehicle-1", vin: "XTA210990Y2765499" },
+      observations: [
+        observation("risk_flag", "pledge", { risk: "pledge", status: "found" }, {
+          id: "pledge-found",
+          reportedAt: "2026-04-01T00:00:00.000Z",
+          acceptedAt: "2026-05-13T09:00:00.000Z"
+        }),
+        observation("risk_flag", "pledge", { risk: "pledge", status: "unknown" }, {
+          id: "pledge-unknown",
+          reportedAt: "2026-05-01T00:00:00.000Z",
+          acceptedAt: "2026-05-13T10:00:00.000Z"
+        })
+      ],
+      conflicts: []
+    });
+
+    expect(result.report.legalRisks.pledge).toEqual({
+      status: "found",
+      checkedAt: "2026-04-01T00:00:00.000Z"
+    });
   });
 
   it("uses Russian plural forms for report counts in history basis text", () => {
