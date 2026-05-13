@@ -5,9 +5,15 @@ import {
   type VehicleFullReportReadModel,
   type VehiclePreviewReadModel
 } from "./report-read-model";
+import {
+  createLockedReportAccessService,
+  type ReportAccessDecision,
+  type ReportAccessService
+} from "../access/report-access-service";
 import { DrizzleVehicleReportRepository } from "./drizzle-vehicle-report-repository";
 
 export type VehicleRoutesDependencies = {
+  accessService: ReportAccessService;
   findPreviewByVin(vin: string): Promise<VehiclePreviewReadModel | null>;
   findFullReportByVin(vin: string): Promise<VehicleFullReportReadModel | null>;
 };
@@ -53,6 +59,15 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
       return invalidVin(context);
     }
 
+    const access = await dependencies.accessService.canViewFullReport({
+      vin,
+      userId: null,
+      guestSessionId: null
+    });
+    if (access.status !== "granted") {
+      return lockedReport(context, access);
+    }
+
     const report = await dependencies.findFullReportByVin(vin);
     if (report === null) {
       return vehicleReportNotFound(context);
@@ -63,12 +78,46 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
     return context.json({ report });
   });
 
+  routes.post("/:vin/unlock-intent", async (context) => {
+    const vin = parseVin(context.req.param("vin"));
+    if (vin === null) {
+      return invalidVin(context);
+    }
+
+    const preview = await dependencies.findPreviewByVin(vin);
+    if (preview === null) {
+      return vehicleReportNotFound(context);
+    }
+
+    const access = await dependencies.accessService.canViewFullReport({
+      vin,
+      userId: null,
+      guestSessionId: null
+    });
+
+    if (access.status === "granted") {
+      return context.json({ unlock: access });
+    }
+
+    return context.json({
+      unlock: {
+        status: access.status,
+        vinMasked: preview.vinMasked,
+        options: access.options,
+        willSpendPoints: false,
+        message: "Списание баллов и подписочных лимитов появится на следующем этапе.",
+        warning: access.warning
+      }
+    });
+  });
+
   return routes;
 }
 
 const vehicleReportRepository = new DrizzleVehicleReportRepository();
 
 export const vehicleRoutes = createVehicleRoutes({
+  accessService: createLockedReportAccessService(),
   findPreviewByVin: (vin) => vehicleReportRepository.findPreviewByVin(vin),
   findFullReportByVin: (vin) => vehicleReportRepository.findFullReportByVin(vin)
 });
@@ -100,5 +149,18 @@ function vehicleReportNotFound(context: Context) {
       }
     },
     404
+  );
+}
+
+function lockedReport(context: Context, access: Extract<ReportAccessDecision, { status: "locked" }>) {
+  return context.json(
+    {
+      error: {
+        code: "vehicle_report_locked",
+        message: "Полный отчет закрыт.",
+        unlock: access
+      }
+    },
+    403
   );
 }

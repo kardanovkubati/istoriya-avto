@@ -3,6 +3,7 @@ import type {
   VehicleFullReportReadModel,
   VehiclePreviewReadModel
 } from "./report-read-model";
+import { createLockedReportAccessService } from "../access/report-access-service";
 import { createVehicleRoutes, type VehicleRoutesDependencies } from "./routes";
 
 const VALID_VIN = "XTA210990Y2765499";
@@ -22,8 +23,54 @@ describe("vehicle routes", () => {
     expect(dependencies.reportCalls).toEqual([]);
   });
 
-  it("returns full report by VIN without source brands", async () => {
+  it("locks full report by default before repository lookup", async () => {
     const dependencies = createDependencies();
+    const routes = createVehicleRoutes(dependencies);
+
+    const response = await routes.request(`/${VALID_VIN}/report`);
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "vehicle_report_locked",
+        message: "Полный отчет закрыт.",
+        unlock: {
+          status: "locked",
+          options: ["upload_report", "choose_plan"],
+          willSpendPoints: false,
+          warning:
+            "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+        }
+      }
+    });
+    expect(dependencies.reportCalls).toEqual([]);
+  });
+
+  it("returns full report only when access service grants access", async () => {
+    const dependencies = createDependencies({
+      accessService: {
+        async canViewFullReport() {
+          return { status: "granted", method: "test_override" };
+        }
+      }
+    });
+    const routes = createVehicleRoutes(dependencies);
+
+    const response = await routes.request(`/${VALID_VIN}/report`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ report: fullReportReadModel() });
+    expect(dependencies.reportCalls).toEqual([VALID_VIN]);
+  });
+
+  it("returns full report by VIN without source brands", async () => {
+    const dependencies = createDependencies({
+      accessService: {
+        async canViewFullReport() {
+          return { status: "granted", method: "test_override" };
+        }
+      }
+    });
     const routes = createVehicleRoutes(dependencies);
 
     const response = await routes.request(`/${VALID_VIN}/report`);
@@ -31,15 +78,36 @@ describe("vehicle routes", () => {
     const serialized = JSON.stringify(body);
 
     expect(response.status).toBe(200);
-    expect(body).toEqual({
-      report: fullReportReadModel()
-    });
     expect(serialized).not.toContain("sourceKind");
     expect(serialized).not.toContain("Автотека");
     expect(serialized).not.toContain("Auto.ru");
     expect(serialized).not.toContain("Drom");
     expect(dependencies.reportCalls).toEqual([VALID_VIN]);
     expect(dependencies.previewCalls).toEqual([]);
+  });
+
+  it("returns unlock intent without revealing full report", async () => {
+    const dependencies = createDependencies();
+    const routes = createVehicleRoutes(dependencies);
+
+    const response = await routes.request(`/${VALID_VIN}/unlock-intent`, {
+      method: "POST"
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      unlock: {
+        status: "locked",
+        vinMasked: "XTA2109********99",
+        options: ["upload_report", "choose_plan"],
+        willSpendPoints: false,
+        message: "Списание баллов и подписочных лимитов появится на следующем этапе.",
+        warning:
+          "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+      }
+    });
+    expect(dependencies.previewCalls).toEqual([VALID_VIN]);
+    expect(dependencies.reportCalls).toEqual([]);
   });
 
   it("rejects invalid VIN before repository lookup", async () => {
@@ -78,6 +146,11 @@ describe("vehicle routes", () => {
 
   it("prevents source brand leaks from stored snapshots", async () => {
     const dependencies = createDependencies({
+      accessService: {
+        async canViewFullReport() {
+          return { status: "granted", method: "test_override" };
+        }
+      },
       findFullReportByVin: async () => ({
         ...fullReportReadModel(),
         sourceKind: "Avito"
@@ -106,6 +179,7 @@ function createDependencies(
   return {
     previewCalls,
     reportCalls,
+    accessService: overrides.accessService ?? createLockedReportAccessService(),
     findPreviewByVin:
       overrides.findPreviewByVin ??
       (async (vin) => {
