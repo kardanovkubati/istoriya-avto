@@ -3,6 +3,8 @@ import { env } from "../../env";
 import { parseAutotekaReport } from "../parsing/autoteka/autoteka-parser";
 import { extractPdfText } from "../pdf/pdf-text-extractor";
 import { LocalObjectStorage } from "../storage/local-object-storage";
+import { DrizzleVehicleReportRepository } from "../vehicles/drizzle-vehicle-report-repository";
+import { VehicleAggregationService } from "../vehicles/vehicle-aggregation-service";
 import { DrizzleReportUploadRepository } from "./drizzle-report-upload-repository";
 import { type IngestPdfResult, ReportUploadService } from "./report-upload-service";
 
@@ -123,11 +125,16 @@ export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono
   return routes;
 }
 
+const vehicleReportRebuilder = new VehicleAggregationService({
+  repository: new DrizzleVehicleReportRepository()
+});
+
 const reportUploadService = new ReportUploadService({
   storage: new LocalObjectStorage({ rootDir: env.REPORT_STORAGE_LOCAL_DIR }),
   repository: new DrizzleReportUploadRepository(),
   extractor: { extractText: extractPdfText },
   parser: { parse: parseAutotekaReport },
+  vehicleReportRebuilder,
   originalRetentionDays: env.REPORT_ORIGINAL_RETENTION_DAYS
 });
 

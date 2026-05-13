@@ -13,6 +13,7 @@ export type ReportUploadServiceOptions = {
   repository: ReportUploadRepository;
   extractor?: ReportTextExtractor;
   parser?: ReportParser;
+  vehicleReportRebuilder?: VehicleReportRebuilder;
   now?: () => Date;
   originalRetentionDays: number;
 };
@@ -41,11 +42,21 @@ export interface ReportParser {
   parse(text: string): ParsedReport;
 }
 
+export interface VehicleReportRebuilder {
+  rebuildFromParsedUpload(input: {
+    vehicleId: string;
+    reportUploadId: string;
+    acceptedAt: Date;
+    parsedReport: ParsedReport;
+  }): Promise<void>;
+}
+
 export class ReportUploadService {
   private readonly storage: ObjectStorage;
   private readonly repository: ReportUploadRepository;
   private readonly extractor: ReportTextExtractor;
   private readonly parser: ReportParser;
+  private readonly vehicleReportRebuilder: VehicleReportRebuilder | null;
   private readonly now: () => Date;
   private readonly originalRetentionDays: number;
 
@@ -54,6 +65,7 @@ export class ReportUploadService {
     this.repository = options.repository;
     this.extractor = options.extractor ?? { extractText: extractPdfText };
     this.parser = options.parser ?? { parse: parseAutotekaReport };
+    this.vehicleReportRebuilder = options.vehicleReportRebuilder ?? null;
     this.now = options.now ?? (() => new Date());
     this.originalRetentionDays = options.originalRetentionDays;
   }
@@ -150,6 +162,15 @@ export class ReportUploadService {
       },
       reviewReason
     });
+
+    if (status === "parsed" && vehicle !== null && trustedVin !== null) {
+      await this.vehicleReportRebuilder?.rebuildFromParsedUpload({
+        vehicleId: vehicle.id,
+        reportUploadId: upload.id,
+        acceptedAt: now,
+        parsedReport
+      });
+    }
 
     return {
       uploadId: upload.id,

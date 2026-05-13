@@ -8,7 +8,7 @@ import type {
   ReportUploadRepository,
   VehicleRecord
 } from "./report-upload-repository";
-import { ReportUploadService } from "./report-upload-service";
+import { ReportUploadService, type VehicleReportRebuilder } from "./report-upload-service";
 
 const NOW = new Date("2026-05-12T12:00:00.000Z");
 const PDF_BYTES = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]);
@@ -110,6 +110,39 @@ describe("ReportUploadService", () => {
     expect(repository.createdUploads[0]?.rawData.storage.expiresAt.toISOString()).toBe(
       "2026-06-11T12:00:00.000Z"
     );
+  });
+
+  it("rebuilds vehicle report read model after parsed upload ingestion", async () => {
+    const repository = new FakeReportUploadRepository();
+    const report = parsedReport();
+    const vehicleReportRebuilder = new FakeVehicleReportRebuilder();
+    const service = createService({
+      repository,
+      vehicleReportRebuilder,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(report)
+    });
+
+    await service.ingestPdf({
+      userId: "user-1",
+      guestSessionId: "guest-1",
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(vehicleReportRebuilder.calls).toEqual([
+      {
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        acceptedAt: NOW,
+        parsedReport: report
+      }
+    ]);
   });
 
   it("creates manual_review upload when text extraction is empty", async () => {
@@ -283,18 +316,47 @@ describe("ReportUploadService", () => {
     expect(repository.upsertVehicleCalls).toBe(0);
     expect(repository.createdUploads[0]?.vehicleId).toBeNull();
   });
+
+  it("does not rebuild vehicle report read model for point-policy manual_review uploads", async () => {
+    const repository = new FakeReportUploadRepository({ automaticGrantCount: 3 });
+    const vehicleReportRebuilder = new FakeVehicleReportRebuilder();
+    const service = createService({
+      repository,
+      vehicleReportRebuilder,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    await service.ingestPdf({
+      userId: "user-1",
+      guestSessionId: "guest-1",
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(vehicleReportRebuilder.calls).toHaveLength(0);
+  });
 });
 
 function createService(input: {
   repository: ReportUploadRepository;
   extractor: FakeExtractor;
   parser: FakeParser;
+  vehicleReportRebuilder?: VehicleReportRebuilder;
 }): ReportUploadService {
   return new ReportUploadService({
     storage: new FakeStorage(),
     extractor: input.extractor,
     parser: input.parser,
     repository: input.repository,
+    ...(input.vehicleReportRebuilder === undefined
+      ? {}
+      : { vehicleReportRebuilder: input.vehicleReportRebuilder }),
     now: () => new Date(NOW),
     originalRetentionDays: 30
   });
@@ -344,6 +406,24 @@ class FakeParser {
     this.calls += 1;
     expect(text).toBe(REPORT_TEXT);
     return this.result;
+  }
+}
+
+class FakeVehicleReportRebuilder implements VehicleReportRebuilder {
+  calls: Array<{
+    vehicleId: string;
+    reportUploadId: string;
+    acceptedAt: Date;
+    parsedReport: ParsedReport;
+  }> = [];
+
+  async rebuildFromParsedUpload(input: {
+    vehicleId: string;
+    reportUploadId: string;
+    acceptedAt: Date;
+    parsedReport: ParsedReport;
+  }): Promise<void> {
+    this.calls.push(input);
   }
 }
 
