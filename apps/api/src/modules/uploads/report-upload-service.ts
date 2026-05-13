@@ -14,6 +14,7 @@ export type ReportUploadServiceOptions = {
   extractor?: ReportTextExtractor;
   parser?: ReportParser;
   vehicleReportRebuilder?: VehicleReportRebuilder;
+  onReportRebuildError?: ReportRebuildErrorHandler;
   now?: () => Date;
   originalRetentionDays: number;
 };
@@ -51,12 +52,20 @@ export interface VehicleReportRebuilder {
   }): Promise<void>;
 }
 
+export type ReportRebuildErrorHandler = (input: {
+  error: unknown;
+  vehicleId: string;
+  reportUploadId: string;
+  vin: string;
+}) => void;
+
 export class ReportUploadService {
   private readonly storage: ObjectStorage;
   private readonly repository: ReportUploadRepository;
   private readonly extractor: ReportTextExtractor;
   private readonly parser: ReportParser;
   private readonly vehicleReportRebuilder: VehicleReportRebuilder | null;
+  private readonly onReportRebuildError: ReportRebuildErrorHandler;
   private readonly now: () => Date;
   private readonly originalRetentionDays: number;
 
@@ -66,6 +75,7 @@ export class ReportUploadService {
     this.extractor = options.extractor ?? { extractText: extractPdfText };
     this.parser = options.parser ?? { parse: parseAutotekaReport };
     this.vehicleReportRebuilder = options.vehicleReportRebuilder ?? null;
+    this.onReportRebuildError = options.onReportRebuildError ?? defaultReportRebuildErrorHandler;
     this.now = options.now ?? (() => new Date());
     this.originalRetentionDays = options.originalRetentionDays;
   }
@@ -164,12 +174,21 @@ export class ReportUploadService {
     });
 
     if (status === "parsed" && vehicle !== null && trustedVin !== null) {
-      await this.vehicleReportRebuilder?.rebuildFromParsedUpload({
-        vehicleId: vehicle.id,
-        reportUploadId: upload.id,
-        acceptedAt: now,
-        parsedReport
-      });
+      try {
+        await this.vehicleReportRebuilder?.rebuildFromParsedUpload({
+          vehicleId: vehicle.id,
+          reportUploadId: upload.id,
+          acceptedAt: now,
+          parsedReport
+        });
+      } catch (error) {
+        this.onReportRebuildError({
+          error,
+          vehicleId: vehicle.id,
+          reportUploadId: upload.id,
+          vin: trustedVin
+        });
+      }
     }
 
     return {
@@ -238,4 +257,13 @@ function addDays(date: Date, days: number): Date {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function defaultReportRebuildErrorHandler(input: {
+  error: unknown;
+  vehicleId: string;
+  reportUploadId: string;
+  vin: string;
+}): void {
+  console.error("Vehicle report rebuild failed after parsed upload ingestion.", input);
 }

@@ -145,6 +145,48 @@ describe("ReportUploadService", () => {
     ]);
   });
 
+  it("returns parsed upload result and reports diagnostics when vehicle report rebuild fails", async () => {
+    const repository = new FakeReportUploadRepository();
+    const error = new Error("read model rebuild failed");
+    const rebuildErrors: Array<{
+      error: unknown;
+      vehicleId: string;
+      reportUploadId: string;
+      vin: string;
+    }> = [];
+    const service = createService({
+      repository,
+      vehicleReportRebuilder: new ThrowingVehicleReportRebuilder(error),
+      onReportRebuildError: (input) => rebuildErrors.push(input),
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    const result = await service.ingestPdf({
+      userId: "user-1",
+      guestSessionId: "guest-1",
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(result.status).toBe("parsed");
+    expect(result.uploadId).toBe("upload-1");
+    expect(result.vin).toBe("XTA210990Y2765499");
+    expect(rebuildErrors).toEqual([
+      {
+        error,
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        vin: "XTA210990Y2765499"
+      }
+    ]);
+  });
+
   it("creates manual_review upload when text extraction is empty", async () => {
     const repository = new FakeReportUploadRepository();
     const parser = new FakeParser(parsedReport());
@@ -229,8 +271,10 @@ describe("ReportUploadService", () => {
 
   it("creates manual_review upload when parser requires manual review despite all key blocks", async () => {
     const repository = new FakeReportUploadRepository();
+    const vehicleReportRebuilder = new FakeVehicleReportRebuilder();
     const service = createService({
       repository,
+      vehicleReportRebuilder,
       extractor: new FakeExtractor({
         text: REPORT_TEXT,
         pageCount: 2,
@@ -262,6 +306,7 @@ describe("ReportUploadService", () => {
     expect(repository.upsertVehicleCalls).toBe(0);
     expect(repository.createdUploads[0]?.vehicleId).toBeNull();
     expect(repository.createdUploads[0]?.reviewReason).toBe("multiple_vins_found");
+    expect(vehicleReportRebuilder.calls).toHaveLength(0);
   });
 
   it("rejects trusted parsed reports when vehicle upsert fails to return a vehicle", async () => {
@@ -348,6 +393,12 @@ function createService(input: {
   extractor: FakeExtractor;
   parser: FakeParser;
   vehicleReportRebuilder?: VehicleReportRebuilder;
+  onReportRebuildError?: (input: {
+    error: unknown;
+    vehicleId: string;
+    reportUploadId: string;
+    vin: string;
+  }) => void;
 }): ReportUploadService {
   return new ReportUploadService({
     storage: new FakeStorage(),
@@ -357,6 +408,9 @@ function createService(input: {
     ...(input.vehicleReportRebuilder === undefined
       ? {}
       : { vehicleReportRebuilder: input.vehicleReportRebuilder }),
+    ...(input.onReportRebuildError === undefined
+      ? {}
+      : { onReportRebuildError: input.onReportRebuildError }),
     now: () => new Date(NOW),
     originalRetentionDays: 30
   });
@@ -424,6 +478,14 @@ class FakeVehicleReportRebuilder implements VehicleReportRebuilder {
     parsedReport: ParsedReport;
   }): Promise<void> {
     this.calls.push(input);
+  }
+}
+
+class ThrowingVehicleReportRebuilder implements VehicleReportRebuilder {
+  constructor(private readonly error: unknown) {}
+
+  async rebuildFromParsedUpload(): Promise<void> {
+    throw this.error;
   }
 }
 
