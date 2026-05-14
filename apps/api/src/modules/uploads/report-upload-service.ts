@@ -3,14 +3,22 @@ import { parseAutotekaReport } from "../parsing/autoteka/autoteka-parser";
 import { createReportFingerprint } from "../parsing/report-fingerprint";
 import type { ParsedReport } from "../parsing/report-parser";
 import { extractPdfText, type PdfTextExtractionResult } from "../pdf/pdf-text-extractor";
+import type { PointsLedgerService } from "../points/points-ledger-service";
 import type { PointsPolicyResult } from "../points/points-policy";
 import type { ObjectStorage } from "../storage/object-storage";
 import { evaluateParsedReportForPoints } from "./points-evaluation";
-import type { ReportUploadRepository } from "./report-upload-repository";
+import type {
+  CreatedReportUpload,
+  FingerprintRecord,
+  ReportUploadRepository,
+  VehicleRecord
+} from "./report-upload-repository";
 
 export type ReportUploadServiceOptions = {
   storage: ObjectStorage;
   repository: ReportUploadRepository;
+  pointsLedgerService: PointsLedgerService;
+  guestPointGrantRepository: GuestPointGrantRepository;
   extractor?: ReportTextExtractor;
   parser?: ReportParser;
   vehicleReportRebuilder?: VehicleReportRebuilder;
@@ -32,8 +40,14 @@ export type IngestPdfResult = {
   vin: string | null;
   generatedAt: Date | null;
   pointsEvaluation: PointsPolicyResult;
+  pointGrant: PointGrantResult;
   reviewReason: string | null;
 };
+
+export type PointGrantResult =
+  | { status: "granted"; points: 1; balanceAfter: number }
+  | { status: "guest_pending"; points: 1 }
+  | { status: "not_granted"; reason: string };
 
 export interface ReportTextExtractor {
   extractText(bytes: Uint8Array): Promise<PdfTextExtractionResult>;
@@ -52,6 +66,17 @@ export interface VehicleReportRebuilder {
   }): Promise<void>;
 }
 
+export interface GuestPointGrantRepository {
+  createGrant(input: {
+    guestSessionId: string;
+    vehicleId: string;
+    reportUploadId: string;
+    reportFingerprintId: string;
+    points: 1;
+    reason: string;
+  }): Promise<void>;
+}
+
 export type ReportRebuildErrorHandler = (input: {
   error: unknown;
   vehicleId: string;
@@ -62,6 +87,8 @@ export type ReportRebuildErrorHandler = (input: {
 export class ReportUploadService {
   private readonly storage: ObjectStorage;
   private readonly repository: ReportUploadRepository;
+  private readonly pointsLedgerService: PointsLedgerService;
+  private readonly guestPointGrantRepository: GuestPointGrantRepository;
   private readonly extractor: ReportTextExtractor;
   private readonly parser: ReportParser;
   private readonly vehicleReportRebuilder: VehicleReportRebuilder | null;
@@ -72,6 +99,8 @@ export class ReportUploadService {
   constructor(options: ReportUploadServiceOptions) {
     this.storage = options.storage;
     this.repository = options.repository;
+    this.pointsLedgerService = options.pointsLedgerService;
+    this.guestPointGrantRepository = options.guestPointGrantRepository;
     this.extractor = options.extractor ?? { extractText: extractPdfText };
     this.parser = options.parser ?? { parse: parseAutotekaReport };
     this.vehicleReportRebuilder = options.vehicleReportRebuilder ?? null;
@@ -173,6 +202,14 @@ export class ReportUploadService {
       reviewReason
     });
 
+    const pointGrant = await this.resolvePointGrant({
+      input,
+      upload,
+      vehicle,
+      fingerprintRecord,
+      pointsEvaluation
+    });
+
     if (status === "parsed" && vehicle !== null && trustedVin !== null) {
       try {
         await this.vehicleReportRebuilder?.rebuildFromParsedUpload({
@@ -197,7 +234,75 @@ export class ReportUploadService {
       vin: parsedReport.vin,
       generatedAt,
       pointsEvaluation,
+      pointGrant,
       reviewReason
+    };
+  }
+
+  private async resolvePointGrant(input: {
+    input: IngestPdfInput;
+    upload: CreatedReportUpload;
+    vehicle: VehicleRecord | null;
+    fingerprintRecord: FingerprintRecord;
+    pointsEvaluation: PointsPolicyResult;
+  }): Promise<PointGrantResult> {
+    if (
+      input.pointsEvaluation.decision !== "grant" ||
+      input.upload.status !== "parsed" ||
+      input.vehicle === null
+    ) {
+      return {
+        status: "not_granted",
+        reason: input.pointsEvaluation.reason
+      };
+    }
+
+    if (input.input.userId !== null) {
+      const result = await this.pointsLedgerService.grantReportPoint({
+        userId: input.input.userId,
+        vehicleId: input.vehicle.id,
+        reportUploadId: input.upload.id,
+        reportFingerprintId: input.fingerprintRecord.id,
+        idempotencyKey: `report-grant:user:${input.input.userId}:upload:${input.upload.id}`,
+        note: input.pointsEvaluation.reason
+      });
+
+      if (
+        (result.status === "applied" || result.status === "idempotent_replay") &&
+        result.balanceAfter !== null
+      ) {
+        return {
+          status: "granted",
+          points: 1,
+          balanceAfter: result.balanceAfter
+        };
+      }
+
+      return {
+        status: "not_granted",
+        reason: result.reason
+      };
+    }
+
+    if (input.input.guestSessionId !== null) {
+      await this.guestPointGrantRepository.createGrant({
+        guestSessionId: input.input.guestSessionId,
+        vehicleId: input.vehicle.id,
+        reportUploadId: input.upload.id,
+        reportFingerprintId: input.fingerprintRecord.id,
+        points: 1,
+        reason: input.pointsEvaluation.reason
+      });
+
+      return {
+        status: "guest_pending",
+        points: 1
+      };
+    }
+
+    return {
+      status: "not_granted",
+      reason: "identity_missing"
     };
   }
 }

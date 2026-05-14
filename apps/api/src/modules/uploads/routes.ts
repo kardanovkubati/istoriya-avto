@@ -1,10 +1,15 @@
 import { type Context, Hono } from "hono";
+import { db } from "../../db/client";
 import { env } from "../../env";
+import { getRequestIdentity } from "../context/request-context";
 import { parseAutotekaReport } from "../parsing/autoteka/autoteka-parser";
 import { extractPdfText } from "../pdf/pdf-text-extractor";
+import { DrizzlePointsLedgerRepository } from "../points/drizzle-points-ledger-repository";
+import { PointsLedgerService } from "../points/points-ledger-service";
 import { LocalObjectStorage } from "../storage/local-object-storage";
 import { DrizzleVehicleReportRepository } from "../vehicles/drizzle-vehicle-report-repository";
 import { VehicleAggregationService } from "../vehicles/vehicle-aggregation-service";
+import { DrizzleGuestPointGrantRepository } from "./drizzle-guest-point-grant-repository";
 import { DrizzleReportUploadRepository } from "./drizzle-report-upload-repository";
 import { type IngestPdfResult, ReportUploadService } from "./report-upload-service";
 
@@ -98,12 +103,13 @@ export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono
       );
     }
 
+    const identity = getRequestIdentity(context);
     const result = await dependencies.ingestPdf({
       fileName: file.name,
       contentType: file.type || "application/pdf",
       bytes,
-      userId: null,
-      guestSessionId: null,
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null,
       now: new Date()
     });
 
@@ -115,6 +121,7 @@ export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono
           vin: result.vin,
           generatedAt: result.generatedAt,
           pointsPreview: result.pointsEvaluation,
+          pointGrant: result.pointGrant,
           reviewReason: result.reviewReason
         }
       },
@@ -128,10 +135,15 @@ export function createUploadRoutes(dependencies: UploadRoutesDependencies): Hono
 const vehicleReportRebuilder = new VehicleAggregationService({
   repository: new DrizzleVehicleReportRepository()
 });
+const pointsLedgerService = new PointsLedgerService({
+  repository: new DrizzlePointsLedgerRepository(db)
+});
 
 const reportUploadService = new ReportUploadService({
   storage: new LocalObjectStorage({ rootDir: env.REPORT_STORAGE_LOCAL_DIR }),
   repository: new DrizzleReportUploadRepository(),
+  pointsLedgerService,
+  guestPointGrantRepository: new DrizzleGuestPointGrantRepository(),
   extractor: { extractText: extractPdfText },
   parser: { parse: parseAutotekaReport },
   vehicleReportRebuilder,

@@ -1,6 +1,15 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "bun:test";
 import type { ParsedReport } from "../parsing/report-parser";
+import type {
+  PointsLedgerEntry,
+  PointsLedgerMutationResult,
+  PointsLedgerRepository,
+  PointsLedgerRepositoryAdjustInput,
+  PointsLedgerRepositoryGrantInput,
+  PointsLedgerRepositorySpendInput
+} from "../points/points-ledger-repository";
+import { PointsLedgerService } from "../points/points-ledger-service";
 import type { PutObjectInput, StoredObject } from "../storage/object-storage";
 import type {
   CreateReportUploadInput,
@@ -8,7 +17,11 @@ import type {
   ReportUploadRepository,
   VehicleRecord
 } from "./report-upload-repository";
-import { ReportUploadService, type VehicleReportRebuilder } from "./report-upload-service";
+import {
+  ReportUploadService,
+  type GuestPointGrantRepository,
+  type VehicleReportRebuilder
+} from "./report-upload-service";
 
 const NOW = new Date("2026-05-12T12:00:00.000Z");
 const PDF_BYTES = new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55]);
@@ -100,6 +113,11 @@ describe("ReportUploadService", () => {
       decision: "grant",
       points: 1,
       reason: "fresh_valid_report"
+    });
+    expect(result.pointGrant).toEqual({
+      status: "granted",
+      points: 1,
+      balanceAfter: 1
     });
     expect(repository.createdUploads).toHaveLength(1);
     expect(repository.createdUploads[0]?.status).toBe("parsed");
@@ -210,6 +228,10 @@ describe("ReportUploadService", () => {
 
     expect(result.status).toBe("manual_review");
     expect(result.reviewReason).toBe("empty_pdf_text");
+    expect(result.pointGrant).toEqual({
+      status: "not_granted",
+      reason: "parser_manual_review_required"
+    });
     expect(parser.calls).toBe(0);
     expect(repository.createdUploads[0]?.status).toBe("manual_review");
     expect(repository.createdUploads[0]?.vehicleId).toBeNull();
@@ -219,10 +241,12 @@ describe("ReportUploadService", () => {
     );
   });
 
-  it("does not mutate user balances or point ledger entries", async () => {
+  it("grants a real ledger point for authenticated users when policy grants", async () => {
     const repository = new FakeReportUploadRepository();
+    const pointsLedgerRepository = new FakePointsLedgerRepository();
     const service = createService({
       repository,
+      pointsLedgerRepository,
       extractor: new FakeExtractor({
         text: REPORT_TEXT,
         pageCount: 2,
@@ -232,15 +256,133 @@ describe("ReportUploadService", () => {
       parser: new FakeParser(parsedReport())
     });
 
-    await service.ingestPdf({
+    const result = await service.ingestPdf({
       userId: "user-1",
+      guestSessionId: null,
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(result.pointGrant).toEqual({
+      status: "granted",
+      points: 1,
+      balanceAfter: 1
+    });
+    expect(pointsLedgerRepository.grantCalls).toEqual([
+      {
+        userId: "user-1",
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        reportFingerprintId: "fingerprint-1",
+        idempotencyKey: "report-grant:user:user-1:upload:upload-1",
+        note: "fresh_valid_report"
+      }
+    ]);
+  });
+
+  it("creates a temporary guest point grant for guest uploads when policy grants", async () => {
+    const repository = new FakeReportUploadRepository();
+    const pointsLedgerRepository = new FakePointsLedgerRepository();
+    const guestPointGrantRepository = new FakeGuestPointGrantRepository();
+    const service = createService({
+      repository,
+      pointsLedgerRepository,
+      guestPointGrantRepository,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    const result = await service.ingestPdf({
+      userId: null,
       guestSessionId: "guest-1",
       bytes: PDF_BYTES,
       originalFileName: "autoteka.pdf"
     });
 
-    expect(repository.pointLedgerMutations).toBe(0);
-    expect(repository.userBalanceMutations).toBe(0);
+    expect(result.pointGrant).toEqual({
+      status: "guest_pending",
+      points: 1
+    });
+    expect(guestPointGrantRepository.createdGrants).toEqual([
+      {
+        guestSessionId: "guest-1",
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        reportFingerprintId: "fingerprint-1",
+        points: 1,
+        reason: "fresh_valid_report"
+      }
+    ]);
+    expect(pointsLedgerRepository.grantCalls).toHaveLength(0);
+  });
+
+  it("returns upload success without a second point when ledger denies duplicate user VIN", async () => {
+    const repository = new FakeReportUploadRepository();
+    const pointsLedgerRepository = new FakePointsLedgerRepository({
+      nextGrantResult: deniedLedgerResult("user_already_rewarded_for_vin", 1)
+    });
+    const service = createService({
+      repository,
+      pointsLedgerRepository,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    const result = await service.ingestPdf({
+      userId: "user-1",
+      guestSessionId: null,
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(result.status).toBe("parsed");
+    expect(result.pointGrant).toEqual({
+      status: "not_granted",
+      reason: "user_already_rewarded_for_vin"
+    });
+    expect(pointsLedgerRepository.grantCalls).toHaveLength(1);
+  });
+
+  it("returns upload success without a second point when ledger denies duplicate fingerprint", async () => {
+    const repository = new FakeReportUploadRepository();
+    const pointsLedgerRepository = new FakePointsLedgerRepository({
+      nextGrantResult: deniedLedgerResult("user_already_rewarded_for_fingerprint", 1)
+    });
+    const service = createService({
+      repository,
+      pointsLedgerRepository,
+      extractor: new FakeExtractor({
+        text: REPORT_TEXT,
+        pageCount: 2,
+        hasExtractableText: true,
+        errorCode: null
+      }),
+      parser: new FakeParser(parsedReport())
+    });
+
+    const result = await service.ingestPdf({
+      userId: "user-1",
+      guestSessionId: null,
+      bytes: PDF_BYTES,
+      originalFileName: "autoteka.pdf"
+    });
+
+    expect(result.status).toBe("parsed");
+    expect(result.pointGrant).toEqual({
+      status: "not_granted",
+      reason: "user_already_rewarded_for_fingerprint"
+    });
+    expect(pointsLedgerRepository.grantCalls).toHaveLength(1);
   });
 
   it("does not detach or mutate caller-owned bytes", async () => {
@@ -271,9 +413,13 @@ describe("ReportUploadService", () => {
 
   it("creates manual_review upload when parser requires manual review despite all key blocks", async () => {
     const repository = new FakeReportUploadRepository();
+    const pointsLedgerRepository = new FakePointsLedgerRepository();
+    const guestPointGrantRepository = new FakeGuestPointGrantRepository();
     const vehicleReportRebuilder = new FakeVehicleReportRebuilder();
     const service = createService({
       repository,
+      pointsLedgerRepository,
+      guestPointGrantRepository,
       vehicleReportRebuilder,
       extractor: new FakeExtractor({
         text: REPORT_TEXT,
@@ -302,11 +448,17 @@ describe("ReportUploadService", () => {
       points: 0,
       reason: "parser_manual_review_required"
     });
+    expect(result.pointGrant).toEqual({
+      status: "not_granted",
+      reason: "parser_manual_review_required"
+    });
     expect(repository.createdUploads[0]?.status).toBe("manual_review");
     expect(repository.upsertVehicleCalls).toBe(0);
     expect(repository.createdUploads[0]?.vehicleId).toBeNull();
     expect(repository.createdUploads[0]?.reviewReason).toBe("multiple_vins_found");
     expect(vehicleReportRebuilder.calls).toHaveLength(0);
+    expect(pointsLedgerRepository.grantCalls).toHaveLength(0);
+    expect(guestPointGrantRepository.createdGrants).toHaveLength(0);
   });
 
   it("rejects trusted parsed reports when vehicle upsert fails to return a vehicle", async () => {
@@ -334,8 +486,12 @@ describe("ReportUploadService", () => {
 
   it("does not attach vehicles for parsed reports that require manual review by points policy", async () => {
     const repository = new FakeReportUploadRepository({ automaticGrantCount: 3 });
+    const pointsLedgerRepository = new FakePointsLedgerRepository();
+    const guestPointGrantRepository = new FakeGuestPointGrantRepository();
     const service = createService({
       repository,
+      pointsLedgerRepository,
+      guestPointGrantRepository,
       extractor: new FakeExtractor({
         text: REPORT_TEXT,
         pageCount: 2,
@@ -358,8 +514,14 @@ describe("ReportUploadService", () => {
       points: 0,
       reason: "fingerprint_auto_grant_limit_reached"
     });
+    expect(result.pointGrant).toEqual({
+      status: "not_granted",
+      reason: "fingerprint_auto_grant_limit_reached"
+    });
     expect(repository.upsertVehicleCalls).toBe(0);
     expect(repository.createdUploads[0]?.vehicleId).toBeNull();
+    expect(pointsLedgerRepository.grantCalls).toHaveLength(0);
+    expect(guestPointGrantRepository.createdGrants).toHaveLength(0);
   });
 
   it("does not rebuild vehicle report read model for point-policy manual_review uploads", async () => {
@@ -392,6 +554,8 @@ function createService(input: {
   repository: ReportUploadRepository;
   extractor: FakeExtractor;
   parser: FakeParser;
+  pointsLedgerRepository?: FakePointsLedgerRepository;
+  guestPointGrantRepository?: FakeGuestPointGrantRepository;
   vehicleReportRebuilder?: VehicleReportRebuilder;
   onReportRebuildError?: (input: {
     error: unknown;
@@ -405,6 +569,11 @@ function createService(input: {
     extractor: input.extractor,
     parser: input.parser,
     repository: input.repository,
+    pointsLedgerService: new PointsLedgerService({
+      repository: input.pointsLedgerRepository ?? new FakePointsLedgerRepository()
+    }),
+    guestPointGrantRepository:
+      input.guestPointGrantRepository ?? new FakeGuestPointGrantRepository(),
     ...(input.vehicleReportRebuilder === undefined
       ? {}
       : { vehicleReportRebuilder: input.vehicleReportRebuilder }),
@@ -491,8 +660,6 @@ class ThrowingVehicleReportRebuilder implements VehicleReportRebuilder {
 
 class FakeReportUploadRepository implements ReportUploadRepository {
   createdUploads: CreateReportUploadInput[] = [];
-  pointLedgerMutations = 0;
-  userBalanceMutations = 0;
   upsertVehicleCalls = 0;
   private readonly vehicles = new Map<string, VehicleRecord>();
   private readonly fingerprints = new Map<string, FingerprintRecord>();
@@ -541,4 +708,76 @@ class FakeReportUploadRepository implements ReportUploadRepository {
     this.createdUploads.push(input);
     return { id: `upload-${this.createdUploads.length}`, status: input.status };
   }
+}
+
+class FakeGuestPointGrantRepository implements GuestPointGrantRepository {
+  createdGrants: Array<Parameters<GuestPointGrantRepository["createGrant"]>[0]> = [];
+
+  async createGrant(input: Parameters<GuestPointGrantRepository["createGrant"]>[0]): Promise<void> {
+    this.createdGrants.push(input);
+  }
+}
+
+class FakePointsLedgerRepository implements PointsLedgerRepository {
+  grantCalls: PointsLedgerRepositoryGrantInput[] = [];
+  private balance = 0;
+
+  constructor(
+    private readonly options: { nextGrantResult?: PointsLedgerMutationResult } = {}
+  ) {}
+
+  async grantReportPoint(input: PointsLedgerRepositoryGrantInput): Promise<PointsLedgerMutationResult> {
+    this.grantCalls.push(input);
+    if (this.options.nextGrantResult !== undefined) return this.options.nextGrantResult;
+
+    this.balance += 1;
+    const entry: PointsLedgerEntry = {
+      id: `ledger-${this.grantCalls.length}`,
+      userId: input.userId,
+      vehicleId: input.vehicleId,
+      reportUploadId: input.reportUploadId,
+      reportFingerprintId: input.reportFingerprintId,
+      delta: 1,
+      reason: "report_grant",
+      idempotencyKey: input.idempotencyKey,
+      note: input.note,
+      createdAt: NOW,
+      updatedAt: NOW
+    };
+
+    return {
+      status: "applied",
+      entry,
+      ledgerEntryId: entry.id,
+      balanceAfter: this.balance,
+      reason: "report_grant"
+    };
+  }
+
+  async spendPointForAccess(
+    _input: PointsLedgerRepositorySpendInput
+  ): Promise<PointsLedgerMutationResult> {
+    throw new Error("spendPointForAccess is not used by upload tests.");
+  }
+
+  async adjustPoints(_input: PointsLedgerRepositoryAdjustInput): Promise<PointsLedgerMutationResult> {
+    throw new Error("adjustPoints is not used by upload tests.");
+  }
+
+  async getBalance(): Promise<number | null> {
+    return this.balance;
+  }
+}
+
+function deniedLedgerResult(
+  reason: PointsLedgerMutationResult["reason"],
+  balanceAfter: number
+): PointsLedgerMutationResult {
+  return {
+    status: "denied",
+    entry: null,
+    ledgerEntryId: null,
+    balanceAfter,
+    reason
+  };
 }

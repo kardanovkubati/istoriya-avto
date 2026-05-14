@@ -1,5 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
+import { db } from "./db/client";
 import { env } from "./env";
 import { AccountService, type AccountTransferResult } from "./modules/auth/account-service";
 import { createAuthRoutes } from "./modules/auth/auth-routes";
@@ -7,12 +8,11 @@ import { DrizzleAccountRepository } from "./modules/auth/drizzle-account-reposit
 import { UserSessionService } from "./modules/auth/user-session-service";
 import { createRequestContextMiddleware } from "./modules/context/request-context";
 import { DrizzleGuestSessionRepository } from "./modules/guest/drizzle-guest-session-repository";
-import {
-  GuestContextTransferService,
-  type GuestPointLedgerGrantPort
-} from "./modules/guest/guest-context-transfer-service";
+import { GuestContextTransferService } from "./modules/guest/guest-context-transfer-service";
 import { GuestSessionService } from "./modules/guest/guest-session-service";
 import { healthRoutes } from "./modules/health/routes";
+import { DrizzlePointsLedgerRepository } from "./modules/points/drizzle-points-ledger-repository";
+import { PointsLedgerService } from "./modules/points/points-ledger-service";
 import { searchRoutes } from "./modules/search/routes";
 import { uploadRoutes } from "./modules/uploads/routes";
 import { vehicleRoutes } from "./modules/vehicles/routes";
@@ -45,9 +45,12 @@ export function createApp(options: CreateAppOptions = {}) {
   const accountRepository = new DrizzleAccountRepository();
   const userSessionService = new UserSessionService(accountRepository);
   const guestSessionRepository = new DrizzleGuestSessionRepository();
+  const pointsLedgerService = new PointsLedgerService({
+    repository: new DrizzlePointsLedgerRepository(db)
+  });
   const guestContextTransferService = new GuestContextTransferService({
     repository: guestSessionRepository,
-    ledger: temporaryNoopLedger
+    ledger: pointsLedgerService
   });
   const requestContextMiddleware =
     options.requestContextMiddleware === undefined
@@ -109,15 +112,6 @@ export function createApp(options: CreateAppOptions = {}) {
 
   return app;
 }
-
-const temporaryNoopLedger: GuestPointLedgerGrantPort = {
-  async grantReportPoint() {
-    return {
-      status: "denied",
-      ledgerEntryId: null
-    };
-  }
-};
 
 const app = createApp();
 

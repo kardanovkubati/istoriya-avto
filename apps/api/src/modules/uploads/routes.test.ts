@@ -1,4 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { Hono } from "hono";
+import {
+  REQUEST_IDENTITY_KEY,
+  type RequestIdentity
+} from "../context/request-context";
 import { createUploadRoutes, type UploadRoutesDependencies } from "./routes";
 
 const VALID_USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -98,9 +103,13 @@ describe("upload routes", () => {
     expect(dependencies.calls).toHaveLength(0);
   });
 
-  it("returns neutral upload status for parsed PDF", async () => {
+  it("uses guest request identity and returns point grant for parsed PDF", async () => {
     const dependencies = createDependencies();
-    const routes = createUploadRoutes(dependencies);
+    const routes = createTestApp(dependencies, {
+      kind: "guest",
+      guestSessionId: VALID_GUEST_SESSION_ID,
+      expiresAt: new Date("2026-05-21T10:00:00.000Z")
+    });
     const form = new FormData();
     form.append("rightsConfirmed", "true");
     form.append("file", pdfFile("autoteka.pdf", "application/pdf"));
@@ -125,6 +134,10 @@ describe("upload routes", () => {
           points: 1,
           reason: "fresh_valid_report"
         },
+        pointGrant: {
+          status: "guest_pending",
+          points: 1
+        },
         reviewReason: null
       }
     });
@@ -133,10 +146,65 @@ describe("upload routes", () => {
       fileName: "autoteka.pdf",
       contentType: "application/pdf",
       userId: null,
-      guestSessionId: null
+      guestSessionId: VALID_GUEST_SESSION_ID
     });
     expect(Array.from(dependencies.calls[0]?.bytes ?? [])).toEqual([37, 80, 68, 70]);
     expect(dependencies.calls[0]?.now).toBeInstanceOf(Date);
+  });
+
+  it("uses authenticated request identity for parsed PDF", async () => {
+    const dependencies = createDependencies({
+      ingestPdf: async (input) => {
+        dependencies.calls.push(input);
+        return {
+          uploadId: "upload-1",
+          status: "parsed",
+          vin: "XTA210990Y2765499",
+          generatedAt: new Date("2026-05-01T00:00:00.000Z"),
+          pointsEvaluation: {
+            decision: "grant",
+            points: 1,
+            reason: "fresh_valid_report"
+          },
+          pointGrant: {
+            status: "granted",
+            points: 1,
+            balanceAfter: 3
+          },
+          reviewReason: null
+        };
+      }
+    });
+    const routes = createTestApp(dependencies, {
+      kind: "user",
+      userId: VALID_USER_ID
+    });
+    const form = new FormData();
+    form.append("rightsConfirmed", "true");
+    form.append("file", pdfFile("autoteka.pdf", "application/pdf"));
+
+    const response = await routes.request("/report-pdf", {
+      method: "POST",
+      headers: {
+        "content-length": "100"
+      },
+      body: form
+    });
+
+    expect(response.status).toBe(201);
+    expect(await response.json()).toMatchObject({
+      upload: {
+        pointGrant: {
+          status: "granted",
+          points: 1,
+          balanceAfter: 3
+        }
+      }
+    });
+    expect(dependencies.calls[0]).toMatchObject({
+      userId: VALID_USER_ID,
+      guestSessionId: null
+    });
   });
 
   it("rejects oversized PDFs with 413 without calling ingestPdf", async () => {
@@ -274,8 +342,26 @@ function createDependencies(
             points: 1,
             reason: "fresh_valid_report"
           },
+          pointGrant: {
+            status: "guest_pending",
+            points: 1
+          },
           reviewReason: null
         };
       })
   };
+}
+
+function createTestApp(dependencies: UploadRoutesDependencies, identity: RequestIdentity) {
+  const app = new Hono<{
+    Variables: {
+      requestIdentity: RequestIdentity;
+    };
+  }>();
+  app.use("*", async (context, next) => {
+    context.set(REQUEST_IDENTITY_KEY, identity);
+    await next();
+  });
+  app.route("/", createUploadRoutes(dependencies));
+  return app;
 }
