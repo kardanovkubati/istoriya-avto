@@ -26,6 +26,10 @@ export const pointLedgerReason = pgEnum("point_ledger_reason", [
   "admin_adjustment",
   "fraud_reversal"
 ]);
+export const guestEventKind = pgEnum("guest_event_kind", [
+  "search_context",
+  "selected_unlock_vin"
+]);
 export const subscriptionStatus = pgEnum("subscription_status", [
   "active",
   "canceled",
@@ -81,6 +85,22 @@ export const authIdentities = pgTable(
   })
 );
 
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    tokenHash: text("token_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps
+  },
+  (table) => ({
+    userSessionTokenUnique: uniqueIndex("user_sessions_token_hash_unique").on(table.tokenHash),
+    userSessionUserIdx: index("user_sessions_user_idx").on(table.userId)
+  })
+);
+
 export const guestSessions = pgTable(
   "guest_sessions",
   {
@@ -92,6 +112,24 @@ export const guestSessions = pgTable(
   },
   (table) => ({
     tokenHashUnique: uniqueIndex("guest_sessions_token_hash_unique").on(table.tokenHash)
+  })
+);
+
+export const guestEvents = pgTable(
+  "guest_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guestSessionId: uuid("guest_session_id").notNull().references(() => guestSessions.id),
+    kind: guestEventKind("kind").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    transferredToUserId: uuid("transferred_to_user_id").references(() => users.id),
+    ...timestamps
+  },
+  (table) => ({
+    guestEventsSessionKindIdx: index("guest_events_session_kind_idx").on(
+      table.guestSessionId,
+      table.kind
+    )
   })
 );
 
@@ -268,13 +306,53 @@ export const pointLedgerEntries = pgTable(
     userId: uuid("user_id").notNull().references(() => users.id),
     vehicleId: uuid("vehicle_id").references(() => vehicles.id),
     reportUploadId: uuid("report_upload_id").references(() => reportUploads.id),
+    reportFingerprintId: uuid("report_fingerprint_id").references(() => reportFingerprints.id),
     delta: integer("delta").notNull(),
     reason: pointLedgerReason("reason").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
     note: text("note"),
     ...timestamps
   },
   (table) => ({
-    pointUserIdx: index("point_ledger_entries_user_idx").on(table.userId)
+    pointUserIdx: index("point_ledger_entries_user_idx").on(table.userId),
+    pointIdempotencyUnique: uniqueIndex("point_ledger_entries_idempotency_unique").on(
+      table.idempotencyKey
+    ),
+    pointUserVehicleGrantUnique: uniqueIndex("point_ledger_entries_user_vehicle_grant_unique")
+      .on(table.userId, table.vehicleId)
+      .where(sql`${table.reason} = 'report_grant' AND ${table.delta} > 0`),
+    pointUserUploadGrantUnique: uniqueIndex("point_ledger_entries_user_upload_grant_unique")
+      .on(table.userId, table.reportUploadId)
+      .where(sql`${table.reason} = 'report_grant' AND ${table.delta} > 0`),
+    pointUserFingerprintGrantUnique: uniqueIndex(
+      "point_ledger_entries_user_fingerprint_grant_unique"
+    )
+      .on(table.userId, table.reportFingerprintId)
+      .where(sql`${table.reason} = 'report_grant' AND ${table.delta} > 0`)
+  })
+);
+
+export const guestPointGrants = pgTable(
+  "guest_point_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    guestSessionId: uuid("guest_session_id").notNull().references(() => guestSessions.id),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+    reportUploadId: uuid("report_upload_id").references(() => reportUploads.id),
+    reportFingerprintId: uuid("report_fingerprint_id").references(() => reportFingerprints.id),
+    points: integer("points").notNull(),
+    reason: text("reason").notNull(),
+    transferredToUserId: uuid("transferred_to_user_id").references(() => users.id),
+    transferredLedgerEntryId: uuid("transferred_ledger_entry_id").references(
+      () => pointLedgerEntries.id
+    ),
+    ...timestamps
+  },
+  (table) => ({
+    guestPointGrantUploadUnique: uniqueIndex("guest_point_grants_upload_unique").on(
+      table.guestSessionId,
+      table.reportUploadId
+    )
   })
 );
 
