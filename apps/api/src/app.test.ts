@@ -103,6 +103,7 @@ describe("api app", () => {
   });
 
   it("exposes auth login route", async () => {
+    const transferCalls: Array<{ guestSessionId: string; userId: string }> = [];
     const requestContextMiddleware: MiddlewareHandler = async (context, next) => {
       context.set(REQUEST_IDENTITY_KEY, {
         kind: "guest",
@@ -113,6 +114,14 @@ describe("api app", () => {
     };
     const app = createApp({
       requestContextMiddleware,
+      guestContextTransfer: async (input) => {
+        transferCalls.push(input);
+        return {
+          pointGrants: 0,
+          reportUploads: 0,
+          selectedUnlockVin: null
+        };
+      },
       authRoutes: createAuthRoutes({
         accountService: new AppTestAccountService() as unknown as AccountService,
         secureCookies: false
@@ -140,6 +149,7 @@ describe("api app", () => {
         selectedUnlockVin: null
       }
     });
+    expect(transferCalls).toEqual([]);
   });
 
   it("allows browser calls from localhost and 127.0.0.1 dev origins", async () => {

@@ -1,12 +1,16 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { env } from "./env";
-import { AccountService } from "./modules/auth/account-service";
+import { AccountService, type AccountTransferResult } from "./modules/auth/account-service";
 import { createAuthRoutes } from "./modules/auth/auth-routes";
 import { DrizzleAccountRepository } from "./modules/auth/drizzle-account-repository";
 import { UserSessionService } from "./modules/auth/user-session-service";
 import { createRequestContextMiddleware } from "./modules/context/request-context";
 import { DrizzleGuestSessionRepository } from "./modules/guest/drizzle-guest-session-repository";
+import {
+  GuestContextTransferService,
+  type GuestPointLedgerGrantPort
+} from "./modules/guest/guest-context-transfer-service";
 import { GuestSessionService } from "./modules/guest/guest-session-service";
 import { healthRoutes } from "./modules/health/routes";
 import { searchRoutes } from "./modules/search/routes";
@@ -17,6 +21,10 @@ export type CreateAppOptions = {
   publicWebUrl?: string;
   requestContextMiddleware?: MiddlewareHandler | null;
   authRoutes?: Hono;
+  guestContextTransfer?: (input: {
+    guestSessionId: string;
+    userId: string;
+  }) => Promise<AccountTransferResult>;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -36,10 +44,15 @@ export function createApp(options: CreateAppOptions = {}) {
   const secureCookies = env.PUBLIC_API_URL.startsWith("https://");
   const accountRepository = new DrizzleAccountRepository();
   const userSessionService = new UserSessionService(accountRepository);
+  const guestSessionRepository = new DrizzleGuestSessionRepository();
+  const guestContextTransferService = new GuestContextTransferService({
+    repository: guestSessionRepository,
+    ledger: temporaryNoopLedger
+  });
   const requestContextMiddleware =
     options.requestContextMiddleware === undefined
       ? createRequestContextMiddleware({
-          guestSessionService: new GuestSessionService(new DrizzleGuestSessionRepository()),
+          guestSessionService: new GuestSessionService(guestSessionRepository),
           userSessionResolver: userSessionService,
           secureCookies
         })
@@ -56,7 +69,10 @@ export function createApp(options: CreateAppOptions = {}) {
       createAuthRoutes({
         accountService: new AccountService({
           repository: accountRepository,
-          userSessionService
+          userSessionService,
+          transferGuestContext:
+            options.guestContextTransfer ??
+            ((input) => guestContextTransferService.transferToUser(input))
         }),
         secureCookies
       })
@@ -93,6 +109,15 @@ export function createApp(options: CreateAppOptions = {}) {
 
   return app;
 }
+
+const temporaryNoopLedger: GuestPointLedgerGrantPort = {
+  async grantReportPoint() {
+    return {
+      status: "denied",
+      ledgerEntryId: null
+    };
+  }
+};
 
 const app = createApp();
 
