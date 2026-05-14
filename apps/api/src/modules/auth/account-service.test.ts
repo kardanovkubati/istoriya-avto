@@ -190,6 +190,39 @@ describe("AccountService", () => {
     });
   });
 
+  it("linking an identity transfers optional guest context to the current user", async () => {
+    const repository = new FakeAccountRepository();
+    const user = repository.createUserWithIdentitySync({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: null
+    });
+    const transferCalls: Array<{ guestSessionId: string; userId: string }> = [];
+    const service = new AccountService({
+      repository,
+      userSessionService: new FakeUserSessionService(),
+      transferGuestContext: async (input) => {
+        transferCalls.push(input);
+        return {
+          pointGrants: 1,
+          reportUploads: 1,
+          selectedUnlockVin: "JTDBR32E720123456"
+        };
+      }
+    });
+
+    const result = await service.linkIdentity({
+      userId: user.id,
+      provider: "phone",
+      providerUserId: "8 (900) 123-45-67",
+      displayName: null,
+      guestSessionId: "guest-1"
+    });
+
+    expect(result.ok).toBe(true);
+    expect(transferCalls).toEqual([{ guestSessionId: "guest-1", userId: user.id }]);
+  });
+
   it("fails when linking Max identity owned by another user", async () => {
     const repository = new FakeAccountRepository();
     const currentUser = repository.createUserWithIdentitySync({

@@ -112,6 +112,7 @@ export class AccountService {
     provider: AuthProvider;
     providerUserId: string;
     displayName: string | null;
+    guestSessionId?: string | null;
   }): Promise<LinkIdentityResult> {
     const identity = normalizeIdentity(input);
     const existingIdentity = await this.repository.findIdentity(
@@ -138,6 +139,12 @@ export class AccountService {
     }
 
     const account = await this.requireAccount(input.userId);
+    if (input.guestSessionId !== undefined && input.guestSessionId !== null) {
+      await this.transferGuestContextSafely({
+        guestSessionId: input.guestSessionId,
+        userId: input.userId
+      });
+    }
 
     return {
       ok: true,

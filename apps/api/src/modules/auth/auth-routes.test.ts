@@ -4,13 +4,16 @@ import { createAuthRoutes } from "./auth-routes";
 import type { AccountService, LinkIdentityResult, LoginResult } from "./account-service";
 import type { AuthProvider } from "./identity";
 import {
+  REQUEST_GUEST_SESSION_KEY,
   REQUEST_IDENTITY_KEY,
   USER_COOKIE_NAME,
+  type RequestGuestSession,
   type RequestIdentity
 } from "../context/request-context";
 
 type TestEnv = {
   Variables: {
+    requestGuestSession: RequestGuestSession;
     requestIdentity: RequestIdentity;
   };
 };
@@ -129,7 +132,8 @@ describe("auth routes", () => {
         userId: "user-current",
         provider: "phone",
         providerUserId: "9001234567",
-        displayName: null
+        displayName: null,
+        guestSessionId: null
       }
     ]);
     expect(await response.json()).toEqual({
@@ -139,6 +143,28 @@ describe("auth routes", () => {
         identities: ["telegram", "phone"]
       }
     });
+  });
+
+  it("links identity and passes optional guest session for transfer", async () => {
+    const accountService = new FakeAccountService();
+    const app = createTestApp(accountService, "user", { guestSessionId: "guest-1" });
+
+    const response = await app.request("/api/auth/link", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "phone", providerUserId: "9001234567" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(accountService.linkCalls).toEqual([
+      {
+        userId: "user-current",
+        provider: "phone",
+        providerUserId: "9001234567",
+        displayName: null,
+        guestSessionId: "guest-1"
+      }
+    ]);
   });
 
   it("maps occupied identity, invalid identity, and invalid payload errors", async () => {
@@ -191,7 +217,7 @@ describe("auth routes", () => {
 function createTestApp(
   accountService: FakeAccountService,
   identityKind: "guest" | "user",
-  options: { secureCookies?: boolean } = {}
+  options: { secureCookies?: boolean; guestSessionId?: string | null } = {}
 ) {
   const app = new Hono<TestEnv>();
   app.use("*", async (context, next) => {
@@ -208,6 +234,12 @@ function createTestApp(
             userId: "user-current"
           }
     );
+    if (options.guestSessionId !== undefined && options.guestSessionId !== null) {
+      context.set(REQUEST_GUEST_SESSION_KEY, {
+        guestSessionId: options.guestSessionId,
+        expiresAt: new Date("2026-05-21T10:00:00.000Z")
+      });
+    }
     await next();
   });
   app.route(
@@ -232,6 +264,7 @@ class FakeAccountService {
     provider: AuthProvider;
     providerUserId: string;
     displayName: string | null;
+    guestSessionId: string | null;
   }> = [];
   linkResult: LinkIdentityResult = {
     ok: true,
@@ -274,8 +307,12 @@ class FakeAccountService {
     provider: AuthProvider;
     providerUserId: string;
     displayName: string | null;
+    guestSessionId?: string | null;
   }): Promise<LinkIdentityResult> {
-    this.linkCalls.push(input);
+    this.linkCalls.push({
+      ...input,
+      guestSessionId: input.guestSessionId ?? null
+    });
     if (this.throwInvalidIdentity) {
       throw new Error("invalid_identity");
     }

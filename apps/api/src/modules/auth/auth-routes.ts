@@ -2,7 +2,11 @@ import { type Context, Hono } from "hono";
 import { setCookie } from "hono/cookie";
 import { z } from "zod";
 import type { AccountService } from "./account-service";
-import { USER_COOKIE_NAME, getRequestIdentity } from "../context/request-context";
+import {
+  USER_COOKIE_NAME,
+  getOptionalGuestSession,
+  getRequestIdentity
+} from "../context/request-context";
 
 const authProviderSchema = z.enum(["phone", "telegram", "max"]);
 const authPayloadSchema = z.object({
@@ -75,11 +79,13 @@ export function createAuthRoutes(dependencies: AuthRoutesDependencies): Hono {
     }
 
     try {
+      const guestSession = getOptionalGuestSession(context);
       const result = await dependencies.accountService.linkIdentity({
         userId: identity.userId,
         provider: payload.provider,
         providerUserId: payload.providerUserId,
-        displayName: payload.displayName ?? null
+        displayName: payload.displayName ?? null,
+        guestSessionId: guestSession?.guestSessionId ?? null
       });
 
       if (!result.ok) {

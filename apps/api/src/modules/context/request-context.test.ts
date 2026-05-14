@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Hono } from "hono";
 import {
   createRequestContextMiddleware,
+  getOptionalGuestSession,
   getRequestIdentity,
   GUEST_COOKIE_NAME,
   USER_COOKIE_NAME,
@@ -86,8 +87,14 @@ describe("request context middleware", () => {
     });
   });
 
-  it("valid user cookie sets user identity and does not create guest", async () => {
+  it("valid user and guest cookies set user identity and keep guest session available for transfer", async () => {
     const guestSessionService = new FakeGuestSessionService();
+    guestSessionService.resolvedGuest = {
+      id: "guest-existing",
+      tokenHash: "hash",
+      expiresAt: new Date("2026-05-21T10:00:00.000Z"),
+      claimedByUserId: null
+    };
     const userSessionResolver: UserSessionResolver = {
       async resolveUserSession(token) {
         return token === "user-token" ? { userId: "user-1" } : null;
@@ -101,11 +108,12 @@ describe("request context middleware", () => {
       }
     });
 
-    expect(guestSessionService.resolvedTokens).toEqual([]);
+    expect(guestSessionService.resolvedTokens).toEqual(["guest-token"]);
     expect(guestSessionService.createCalls).toBe(0);
     expect(await response.json()).toEqual({
       kind: "user",
-      userId: "user-1"
+      userId: "user-1",
+      guestSessionId: "guest-existing"
     });
   });
 
@@ -147,13 +155,17 @@ function createTestApp(
   app.use("*", createRequestContextMiddleware(middlewareOptions));
   app.get("/", (context) => {
     const identity = getRequestIdentity(context);
+    const guestSession = getOptionalGuestSession(context);
     return context.json(
       identity.kind === "guest"
         ? {
             ...identity,
             expiresAt: identity.expiresAt.toISOString()
           }
-        : identity
+        : {
+            ...identity,
+            ...(guestSession === null ? {} : { guestSessionId: guestSession.guestSessionId })
+          }
     );
   });
   return app;

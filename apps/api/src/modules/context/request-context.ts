@@ -10,7 +10,13 @@ export type RequestIdentity =
   | { kind: "guest"; guestSessionId: string; expiresAt: Date }
   | { kind: "user"; userId: string };
 
+export type RequestGuestSession = {
+  guestSessionId: string;
+  expiresAt: Date;
+};
+
 export const REQUEST_IDENTITY_KEY = "requestIdentity";
+export const REQUEST_GUEST_SESSION_KEY = "requestGuestSession";
 export const GUEST_COOKIE_NAME = "ia_guest";
 export const USER_COOKIE_NAME = "ia_user";
 
@@ -24,6 +30,7 @@ export function createRequestContextMiddleware(options: {
     const userSession = await options.userSessionResolver?.resolveUserSession(userToken);
 
     if (userSession !== undefined && userSession !== null) {
+      await resolveExistingGuestSession(context, options.guestSessionService);
       context.set(REQUEST_IDENTITY_KEY, {
         kind: "user",
         userId: userSession.userId
@@ -32,13 +39,15 @@ export function createRequestContextMiddleware(options: {
       return;
     }
 
-    const guestToken = getCookie(context, GUEST_COOKIE_NAME) ?? null;
-    const guestSession = await options.guestSessionService.resolveGuestSession(guestToken);
+    const guestSession = await resolveExistingGuestSession(
+      context,
+      options.guestSessionService
+    );
 
     if (guestSession !== null) {
       context.set(REQUEST_IDENTITY_KEY, {
         kind: "guest",
-        guestSessionId: guestSession.id,
+        guestSessionId: guestSession.guestSessionId,
         expiresAt: guestSession.expiresAt
       });
       await next();
@@ -52,6 +61,10 @@ export function createRequestContextMiddleware(options: {
       path: "/",
       expires: createdGuestSession.expiresAt,
       ...(options.secureCookies === true ? { secure: true } : {})
+    });
+    context.set(REQUEST_GUEST_SESSION_KEY, {
+      guestSessionId: createdGuestSession.session.id,
+      expiresAt: createdGuestSession.expiresAt
     });
     context.set(REQUEST_IDENTITY_KEY, {
       kind: "guest",
@@ -70,4 +83,30 @@ export function getRequestIdentity(context: Context): RequestIdentity {
   }
 
   return identity as RequestIdentity;
+}
+
+export function getOptionalGuestSession(context: Context): RequestGuestSession | null {
+  return (context.get(REQUEST_GUEST_SESSION_KEY) as RequestGuestSession | undefined) ?? null;
+}
+
+async function resolveExistingGuestSession(
+  context: Context,
+  guestSessionService: GuestSessionService
+): Promise<RequestGuestSession | null> {
+  const guestToken = getCookie(context, GUEST_COOKIE_NAME) ?? null;
+  if (guestToken === null) {
+    return null;
+  }
+
+  const guestSession = await guestSessionService.resolveGuestSession(guestToken);
+  if (guestSession === null) {
+    return null;
+  }
+
+  const requestGuestSession = {
+    guestSessionId: guestSession.id,
+    expiresAt: guestSession.expiresAt
+  };
+  context.set(REQUEST_GUEST_SESSION_KEY, requestGuestSession);
+  return requestGuestSession;
 }
