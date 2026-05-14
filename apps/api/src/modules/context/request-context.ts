@@ -17,6 +17,7 @@ export const USER_COOKIE_NAME = "ia_user";
 export function createRequestContextMiddleware(options: {
   guestSessionService: GuestSessionService;
   userSessionResolver?: UserSessionResolver;
+  secureCookies?: boolean;
 }): MiddlewareHandler {
   return async (context, next) => {
     const userToken = getCookie(context, USER_COOKIE_NAME) ?? null;
@@ -49,7 +50,8 @@ export function createRequestContextMiddleware(options: {
       httpOnly: true,
       sameSite: "Lax",
       path: "/",
-      expires: createdGuestSession.expiresAt
+      expires: createdGuestSession.expiresAt,
+      ...(options.secureCookies === true ? { secure: true } : {})
     });
     context.set(REQUEST_IDENTITY_KEY, {
       kind: "guest",

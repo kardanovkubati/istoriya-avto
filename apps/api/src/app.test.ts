@@ -99,7 +99,7 @@ describe("api app", () => {
 
   it("allows browser calls from localhost and 127.0.0.1 dev origins", async () => {
     for (const origin of ["http://localhost:5173", "http://127.0.0.1:5173"]) {
-      const response = await app.request("/api/search/detect", {
+      const preflightResponse = await app.request("/api/search/detect", {
         method: "OPTIONS",
         headers: {
           origin,
@@ -107,8 +107,41 @@ describe("api app", () => {
         }
       });
 
-      expect(response.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(preflightResponse.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(preflightResponse.headers.get("access-control-allow-credentials")).toBe("true");
+
+      const actualResponse = await app.request("/api/search/detect", {
+        method: "POST",
+        headers: {
+          origin,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ query: "А123ВС777" })
+      });
+
+      expect(actualResponse.headers.get("access-control-allow-origin")).toBe(origin);
+      expect(actualResponse.headers.get("access-control-allow-credentials")).toBe("true");
     }
+  });
+
+  it("does not run request context middleware for CORS preflight", async () => {
+    const middlewarePaths: string[] = [];
+    const requestContextMiddleware: MiddlewareHandler = async (context, next) => {
+      middlewarePaths.push(context.req.path);
+      await next();
+    };
+    const app = createApp({ requestContextMiddleware });
+
+    const response = await app.request("/api/search/detect", {
+      method: "OPTIONS",
+      headers: {
+        origin: "http://localhost:5173",
+        "access-control-request-method": "POST"
+      }
+    });
+
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(middlewarePaths).toEqual([]);
   });
 
   it("runs request context middleware on api routes but not health", async () => {

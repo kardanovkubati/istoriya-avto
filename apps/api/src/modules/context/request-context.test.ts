@@ -30,6 +30,16 @@ describe("request context middleware", () => {
     });
   });
 
+  it("sets Secure on created guest cookie when secure cookies are enabled", async () => {
+    const guestSessionService = new FakeGuestSessionService();
+    const app = createTestApp(guestSessionService, { secureCookies: true });
+
+    const response = await app.request("/");
+
+    expectCreatedGuestCookie(response);
+    expect(response.headers.get("set-cookie")).toContain("Secure");
+  });
+
   it("invalid guest cookie creates exactly one new guest session and emits Set-Cookie", async () => {
     const guestSessionService = new FakeGuestSessionService();
     const app = createTestApp(guestSessionService);
@@ -83,7 +93,7 @@ describe("request context middleware", () => {
         return token === "user-token" ? { userId: "user-1" } : null;
       }
     };
-    const app = createTestApp(guestSessionService, userSessionResolver);
+    const app = createTestApp(guestSessionService, { userSessionResolver });
 
     const response = await app.request("/", {
       headers: {
@@ -116,17 +126,25 @@ describe("request context middleware", () => {
 
 function createTestApp(
   guestSessionService: FakeGuestSessionService,
-  userSessionResolver?: UserSessionResolver
+  options: {
+    userSessionResolver?: UserSessionResolver;
+    secureCookies?: boolean;
+  } = {}
 ) {
   const app = new Hono();
-  app.use(
-    "*",
-    createRequestContextMiddleware(
-      userSessionResolver === undefined
-        ? { guestSessionService }
-        : { guestSessionService, userSessionResolver }
-    )
-  );
+  const middlewareOptions: Parameters<typeof createRequestContextMiddleware>[0] = {
+    guestSessionService
+  };
+
+  if (options.userSessionResolver !== undefined) {
+    middlewareOptions.userSessionResolver = options.userSessionResolver;
+  }
+
+  if (options.secureCookies !== undefined) {
+    middlewareOptions.secureCookies = options.secureCookies;
+  }
+
+  app.use("*", createRequestContextMiddleware(middlewareOptions));
   app.get("/", (context) => {
     const identity = getRequestIdentity(context);
     return context.json(

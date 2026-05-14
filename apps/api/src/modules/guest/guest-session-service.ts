@@ -10,7 +10,7 @@ export type CreatedGuestSession = {
 };
 
 const GUEST_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const TOKEN_HEX_LENGTH = 64;
+const GUEST_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
 export class GuestSessionService {
   constructor(
@@ -34,7 +34,7 @@ export class GuestSessionService {
   }
 
   async resolveGuestSession(token: string | null): Promise<StoredGuestSession | null> {
-    if (token === null || token.length < TOKEN_HEX_LENGTH) {
+    if (token === null || !GUEST_TOKEN_PATTERN.test(token)) {
       return null;
     }
 

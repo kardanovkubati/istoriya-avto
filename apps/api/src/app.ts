@@ -1,5 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
+import { env } from "./env";
 import { createRequestContextMiddleware } from "./modules/context/request-context";
 import { DrizzleGuestSessionRepository } from "./modules/guest/drizzle-guest-session-repository";
 import { GuestSessionService } from "./modules/guest/guest-session-service";
@@ -20,14 +21,16 @@ export function createApp(options: CreateAppOptions = {}) {
     cors({
       origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
       allowHeaders: ["content-type"],
-      allowMethods: ["GET", "POST", "OPTIONS"]
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      credentials: true
     })
   );
 
   const requestContextMiddleware =
     options.requestContextMiddleware === undefined
       ? createRequestContextMiddleware({
-          guestSessionService: new GuestSessionService(new DrizzleGuestSessionRepository())
+          guestSessionService: new GuestSessionService(new DrizzleGuestSessionRepository()),
+          secureCookies: env.PUBLIC_API_URL.startsWith("https://")
         })
       : options.requestContextMiddleware;
 

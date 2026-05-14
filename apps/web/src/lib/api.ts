@@ -76,6 +76,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001
 export async function detectSearchQuery(query: string): Promise<SearchDetectionResponse> {
   const response = await fetch(`${API_BASE_URL}/api/search/detect`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "content-type": "application/json"
     },
@@ -92,6 +93,7 @@ export async function detectSearchQuery(query: string): Promise<SearchDetectionR
 export async function searchVehicles(query: string): Promise<SearchResultResponse> {
   const response = await fetch(`${API_BASE_URL}/api/search`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "content-type": "application/json"
     },
@@ -107,7 +109,8 @@ export async function searchVehicles(query: string): Promise<SearchResultRespons
 
 export async function createUnlockIntent(vin: string): Promise<UnlockIntentResponse> {
   const response = await fetch(`${API_BASE_URL}/api/vehicles/${encodeURIComponent(vin)}/unlock-intent`, {
-    method: "POST"
+    method: "POST",
+    credentials: "include"
   });
 
   if (!response.ok) {

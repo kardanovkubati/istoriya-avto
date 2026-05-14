@@ -60,10 +60,20 @@ describe("GuestSessionService", () => {
     expect(expiredSession.id).toBe("guest-1");
     expect(claimedSession.id).toBe("guest-2");
   });
+
+  it("rejects malformed tokens without repository lookup", async () => {
+    const repository = new FakeGuestSessionRepository();
+    const service = new GuestSessionService(repository);
+
+    expect(await service.resolveGuestSession("a".repeat(65))).toBeNull();
+    expect(await service.resolveGuestSession(`${"a".repeat(63)}z`)).toBeNull();
+    expect(repository.findByTokenHashCalls).toBe(0);
+  });
 });
 
 class FakeGuestSessionRepository implements GuestSessionRepository {
   readonly createdInputs: Array<{ tokenHash: string; expiresAt: Date }> = [];
+  findByTokenHashCalls = 0;
   private readonly sessionsByTokenHash = new Map<string, StoredGuestSession>();
   private nextId = 1;
 
@@ -73,6 +83,7 @@ class FakeGuestSessionRepository implements GuestSessionRepository {
   }
 
   async findByTokenHash(tokenHash: string): Promise<StoredGuestSession | null> {
+    this.findByTokenHashCalls += 1;
     return this.sessionsByTokenHash.get(tokenHash) ?? null;
   }
 
