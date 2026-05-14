@@ -15,14 +15,34 @@ import {
 } from "../guest/guest-session-service";
 
 describe("request context middleware", () => {
-  it("no cookies creates exactly one guest session and sets Set-Cookie containing ia_guest", async () => {
+  it("no cookies creates exactly one guest session and sets guest cookie attributes", async () => {
     const guestSessionService = new FakeGuestSessionService();
     const app = createTestApp(guestSessionService);
 
     const response = await app.request("/");
 
     expect(guestSessionService.createCalls).toBe(1);
-    expect(response.headers.get("set-cookie")).toContain(GUEST_COOKIE_NAME);
+    expectCreatedGuestCookie(response);
+    expect(await response.json()).toEqual({
+      kind: "guest",
+      guestSessionId: "guest-created-1",
+      expiresAt: "2026-05-21T10:00:00.000Z"
+    });
+  });
+
+  it("invalid guest cookie creates exactly one new guest session and emits Set-Cookie", async () => {
+    const guestSessionService = new FakeGuestSessionService();
+    const app = createTestApp(guestSessionService);
+
+    const response = await app.request("/", {
+      headers: {
+        cookie: `${GUEST_COOKIE_NAME}=stale-token`
+      }
+    });
+
+    expect(guestSessionService.resolvedTokens).toEqual(["stale-token"]);
+    expect(guestSessionService.createCalls).toBe(1);
+    expectCreatedGuestCookie(response);
     expect(await response.json()).toEqual({
       kind: "guest",
       guestSessionId: "guest-created-1",
@@ -119,6 +139,16 @@ function createTestApp(
     );
   });
   return app;
+}
+
+function expectCreatedGuestCookie(response: Response) {
+  const setCookie = response.headers.get("set-cookie");
+
+  expect(setCookie).toContain(`${GUEST_COOKIE_NAME}=created-token-1`);
+  expect(setCookie).toContain("HttpOnly");
+  expect(setCookie).toContain("SameSite=Lax");
+  expect(setCookie).toContain("Path=/");
+  expect(setCookie).toContain("Expires=");
 }
 
 class FakeGuestSessionService extends GuestSessionService {
