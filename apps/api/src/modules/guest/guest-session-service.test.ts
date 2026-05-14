@@ -61,6 +61,45 @@ describe("GuestSessionService", () => {
     expect(claimedSession.id).toBe("guest-2");
   });
 
+  it("resolves claimed sessions for transfer only when they belong to the same user", async () => {
+    const repository = new FakeGuestSessionRepository();
+    const unclaimedToken = "a".repeat(64);
+    const unclaimedSession = repository.add({
+      tokenHash: hashToken(unclaimedToken),
+      expiresAt: new Date("2026-05-21T10:00:00.000Z"),
+      claimedByUserId: null
+    });
+    const sameUserToken = "b".repeat(64);
+    const sameUserSession = repository.add({
+      tokenHash: hashToken(sameUserToken),
+      expiresAt: new Date("2026-05-21T10:00:00.000Z"),
+      claimedByUserId: "user-1"
+    });
+    const anotherUserToken = "c".repeat(64);
+    repository.add({
+      tokenHash: hashToken(anotherUserToken),
+      expiresAt: new Date("2026-05-21T10:00:00.000Z"),
+      claimedByUserId: "user-2"
+    });
+    const service = new GuestSessionService(
+      repository,
+      () => new Date("2026-05-14T10:00:00.000Z")
+    );
+
+    await expect(
+      service.resolveGuestSessionForUserTransfer(unclaimedToken, "user-1")
+    ).resolves.toEqual(unclaimedSession);
+    await expect(
+      service.resolveGuestSessionForUserTransfer(sameUserToken, "user-1")
+    ).resolves.toEqual(sameUserSession);
+    await expect(
+      service.resolveGuestSessionForUserTransfer(sameUserToken, "user-2")
+    ).resolves.toBeNull();
+    await expect(
+      service.resolveGuestSessionForUserTransfer(anotherUserToken, "user-1")
+    ).resolves.toBeNull();
+  });
+
   it("rejects malformed tokens without repository lookup", async () => {
     const repository = new FakeGuestSessionRepository();
     const service = new GuestSessionService(repository);

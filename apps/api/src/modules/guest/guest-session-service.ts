@@ -34,13 +34,40 @@ export class GuestSessionService {
   }
 
   async resolveGuestSession(token: string | null): Promise<StoredGuestSession | null> {
+    const session = await this.findUnexpiredSessionByToken(token);
+    if (session === null || session.claimedByUserId !== null) {
+      return null;
+    }
+
+    return session;
+  }
+
+  async resolveGuestSessionForUserTransfer(
+    token: string | null,
+    userId: string
+  ): Promise<StoredGuestSession | null> {
+    const session = await this.findUnexpiredSessionByToken(token);
+    if (session === null) {
+      return null;
+    }
+
+    if (session.claimedByUserId !== null && session.claimedByUserId !== userId) {
+      return null;
+    }
+
+    return session;
+  }
+
+  private async findUnexpiredSessionByToken(
+    token: string | null
+  ): Promise<StoredGuestSession | null> {
     if (token === null || !GUEST_TOKEN_PATTERN.test(token)) {
       return null;
     }
 
     const session = await this.repository.findByTokenHash(hashToken(token));
 
-    if (session === null || session.claimedByUserId !== null) {
+    if (session === null) {
       return null;
     }
 

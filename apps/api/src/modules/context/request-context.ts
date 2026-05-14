@@ -30,7 +30,9 @@ export function createRequestContextMiddleware(options: {
     const userSession = await options.userSessionResolver?.resolveUserSession(userToken);
 
     if (userSession !== undefined && userSession !== null) {
-      await resolveExistingGuestSession(context, options.guestSessionService);
+      await resolveExistingGuestSession(context, options.guestSessionService, {
+        userId: userSession.userId
+      });
       context.set(REQUEST_IDENTITY_KEY, {
         kind: "user",
         userId: userSession.userId
@@ -91,14 +93,21 @@ export function getOptionalGuestSession(context: Context): RequestGuestSession |
 
 async function resolveExistingGuestSession(
   context: Context,
-  guestSessionService: GuestSessionService
+  guestSessionService: GuestSessionService,
+  options: { userId?: string } = {}
 ): Promise<RequestGuestSession | null> {
   const guestToken = getCookie(context, GUEST_COOKIE_NAME) ?? null;
   if (guestToken === null) {
     return null;
   }
 
-  const guestSession = await guestSessionService.resolveGuestSession(guestToken);
+  const guestSession =
+    options.userId === undefined
+      ? await guestSessionService.resolveGuestSession(guestToken)
+      : await guestSessionService.resolveGuestSessionForUserTransfer(
+          guestToken,
+          options.userId
+        );
   if (guestSession === null) {
     return null;
   }

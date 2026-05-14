@@ -32,11 +32,14 @@ export function createAuthRoutes(dependencies: AuthRoutesDependencies): Hono {
     const identity = getRequestIdentity(context);
 
     try {
+      const guestSession = getOptionalGuestSession(context);
       const result = await dependencies.accountService.loginOrCreate({
         provider: payload.provider,
         providerUserId: payload.providerUserId,
         displayName: payload.displayName ?? null,
-        guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null
+        guestSessionId:
+          guestSession?.guestSessionId ??
+          (identity.kind === "guest" ? identity.guestSessionId : null)
       });
 
       setCookie(context, USER_COOKIE_NAME, result.sessionToken, {

@@ -78,6 +78,20 @@ describe("auth routes", () => {
     expect(accountService.loginCalls[0]?.guestSessionId).toBeNull();
   });
 
+  it("logs in current user identity and passes optional guest session for transfer", async () => {
+    const accountService = new FakeAccountService();
+    const app = createTestApp(accountService, "user", { guestSessionId: "guest-1" });
+
+    const response = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "max", providerUserId: "max-1" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(accountService.loginCalls[0]?.guestSessionId).toBe("guest-1");
+  });
+
   it("marks login cookie secure and expires it when secure cookies are enabled", async () => {
     const accountService = new FakeAccountService();
     const app = createTestApp(accountService, "guest", { secureCookies: true });

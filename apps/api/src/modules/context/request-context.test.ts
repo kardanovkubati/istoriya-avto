@@ -89,7 +89,7 @@ describe("request context middleware", () => {
 
   it("valid user and guest cookies set user identity and keep guest session available for transfer", async () => {
     const guestSessionService = new FakeGuestSessionService();
-    guestSessionService.resolvedGuest = {
+    guestSessionService.transferResolvedGuest = {
       id: "guest-existing",
       tokenHash: "hash",
       expiresAt: new Date("2026-05-21T10:00:00.000Z"),
@@ -108,12 +108,41 @@ describe("request context middleware", () => {
       }
     });
 
-    expect(guestSessionService.resolvedTokens).toEqual(["guest-token"]);
+    expect(guestSessionService.resolvedTokens).toEqual([]);
+    expect(guestSessionService.transferResolvedInputs).toEqual([
+      { token: "guest-token", userId: "user-1" }
+    ]);
     expect(guestSessionService.createCalls).toBe(0);
     expect(await response.json()).toEqual({
       kind: "user",
       userId: "user-1",
       guestSessionId: "guest-existing"
+    });
+  });
+
+  it("valid user cookie does not expose a guest session claimed by another user", async () => {
+    const guestSessionService = new FakeGuestSessionService();
+    guestSessionService.transferResolvedGuest = null;
+    const userSessionResolver: UserSessionResolver = {
+      async resolveUserSession(token) {
+        return token === "user-token" ? { userId: "user-1" } : null;
+      }
+    };
+    const app = createTestApp(guestSessionService, { userSessionResolver });
+
+    const response = await app.request("/", {
+      headers: {
+        cookie: `${USER_COOKIE_NAME}=user-token; ${GUEST_COOKIE_NAME}=guest-token`
+      }
+    });
+
+    expect(guestSessionService.transferResolvedInputs).toEqual([
+      { token: "guest-token", userId: "user-1" }
+    ]);
+    expect(guestSessionService.createCalls).toBe(0);
+    expect(await response.json()).toEqual({
+      kind: "user",
+      userId: "user-1"
     });
   });
 
@@ -184,7 +213,9 @@ function expectCreatedGuestCookie(response: Response) {
 class FakeGuestSessionService extends GuestSessionService {
   createCalls = 0;
   readonly resolvedTokens: Array<string | null> = [];
+  readonly transferResolvedInputs: Array<{ token: string | null; userId: string }> = [];
   resolvedGuest: StoredGuestSession | null = null;
+  transferResolvedGuest: StoredGuestSession | null = null;
 
   constructor() {
     super(new UnusedGuestSessionRepository());
@@ -209,6 +240,14 @@ class FakeGuestSessionService extends GuestSessionService {
   async resolveGuestSession(token: string | null): Promise<StoredGuestSession | null> {
     this.resolvedTokens.push(token);
     return this.resolvedGuest;
+  }
+
+  async resolveGuestSessionForUserTransfer(
+    token: string | null,
+    userId: string
+  ): Promise<StoredGuestSession | null> {
+    this.transferResolvedInputs.push({ token, userId });
+    return this.transferResolvedGuest;
   }
 }
 
