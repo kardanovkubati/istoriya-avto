@@ -11,6 +11,7 @@ import {
   adjustPointsIdempotencyFingerprint,
   grantReportPointIdempotencyFingerprint,
   resolveIdempotentReplay,
+  resolveReplayAfterGuardedMutationDenial,
   spendPointForAccessIdempotencyFingerprint
 } from "./points-ledger-repository";
 import { PointsLedgerService } from "./points-ledger-service";
@@ -404,6 +405,87 @@ describe("PointsLedgerService", () => {
   });
 });
 
+describe("resolveReplayAfterGuardedMutationDenial", () => {
+  it("returns idempotent replay for a matching spend entry after a guarded spend denial", () => {
+    const entry = pointLedgerEntry({
+      userId: USER_ID,
+      vehicleId: VEHICLE_ID,
+      delta: -1,
+      reason: "report_access_spend",
+      idempotencyKey: "spend:1"
+    });
+
+    const result = resolveReplayAfterGuardedMutationDenial({
+      entry,
+      fingerprint: spendPointForAccessIdempotencyFingerprint({
+        userId: USER_ID,
+        vehicleId: VEHICLE_ID,
+        idempotencyKey: "spend:1",
+        note: null
+      }),
+      balanceAfter: 0,
+      deniedReason: "insufficient_points"
+    });
+
+    expect(result).toEqual({
+      status: "idempotent_replay",
+      entry,
+      ledgerEntryId: entry.id,
+      balanceAfter: 0,
+      reason: "idempotent_replay"
+    });
+  });
+
+  it("returns idempotent replay for a matching negative adjustment after a guarded adjustment denial", () => {
+    const entry = pointLedgerEntry({
+      userId: USER_ID,
+      delta: -2,
+      reason: "fraud_reversal",
+      idempotencyKey: "adjust:negative",
+      note: "duplicate source reversed"
+    });
+
+    const result = resolveReplayAfterGuardedMutationDenial({
+      entry,
+      fingerprint: adjustPointsIdempotencyFingerprint({
+        userId: USER_ID,
+        delta: -2,
+        reason: "fraud_reversal",
+        idempotencyKey: "adjust:negative",
+        note: "duplicate source reversed"
+      }),
+      balanceAfter: 0,
+      deniedReason: "adjustment_would_make_balance_negative"
+    });
+
+    expect(result.status).toBe("idempotent_replay");
+    expect(result.entry).toEqual(entry);
+    expect(result.ledgerEntryId).toBe(entry.id);
+  });
+
+  it("keeps the guarded denial when no idempotency entry appeared", () => {
+    const result = resolveReplayAfterGuardedMutationDenial({
+      entry: null,
+      fingerprint: spendPointForAccessIdempotencyFingerprint({
+        userId: USER_ID,
+        vehicleId: VEHICLE_ID,
+        idempotencyKey: "spend:1",
+        note: null
+      }),
+      balanceAfter: 0,
+      deniedReason: "insufficient_points"
+    });
+
+    expect(result).toEqual({
+      status: "denied",
+      entry: null,
+      ledgerEntryId: null,
+      balanceAfter: 0,
+      reason: "insufficient_points"
+    });
+  });
+});
+
 class FakePointsLedgerRepository implements PointsLedgerRepository {
   readonly entries: PointsLedgerEntry[] = [];
   private readonly balances = new Map<string, number>();
@@ -591,4 +673,22 @@ class FakePointsLedgerRepository implements PointsLedgerRepository {
       reason
     };
   }
+}
+
+function pointLedgerEntry(
+  input: Partial<PointsLedgerEntry> & Pick<PointsLedgerEntry, "delta" | "reason">
+): PointsLedgerEntry {
+  const now = new Date("2026-05-14T00:00:00.000Z");
+  return {
+    id: "entry-guarded-replay",
+    userId: USER_ID,
+    vehicleId: null,
+    reportUploadId: null,
+    reportFingerprintId: null,
+    idempotencyKey: "entry:key",
+    note: null,
+    createdAt: now,
+    updatedAt: now,
+    ...input
+  };
 }

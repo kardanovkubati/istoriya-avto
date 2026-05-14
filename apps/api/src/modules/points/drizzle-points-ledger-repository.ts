@@ -20,6 +20,7 @@ import {
   adjustPointsIdempotencyFingerprint,
   grantReportPointIdempotencyFingerprint,
   resolveIdempotentReplay,
+  resolveReplayAfterGuardedMutationDenial,
   spendPointForAccessIdempotencyFingerprint
 } from "./points-ledger-repository";
 
@@ -130,7 +131,13 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
           .returning({ pointsBalance: users.pointsBalance });
 
         if (!balances[0]) {
-          return this.denied("insufficient_points", await this.getBalanceInTx(tx, input.userId));
+          return await this.resolveGuardedDenialInTx(
+            tx,
+            input.idempotencyKey,
+            spendPointForAccessIdempotencyFingerprint(input),
+            "insufficient_points",
+            input.userId
+          );
         }
 
         const inserted = await tx
@@ -185,9 +192,12 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
         const now = new Date();
         const balances = await this.updateUserBalanceForAdjustmentInTx(tx, input, now);
         if (!balances[0]) {
-          return this.denied(
+          return await this.resolveGuardedDenialInTx(
+            tx,
+            input.idempotencyKey,
+            adjustPointsIdempotencyFingerprint(input),
             "adjustment_would_make_balance_negative",
-            await this.getBalanceInTx(tx, input.userId)
+            input.userId
           );
         }
 
@@ -328,6 +338,34 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
       .where(eq(pointLedgerEntries.idempotencyKey, idempotencyKey))
       .limit(1);
     return rows[0] ? mapEntry(rows[0]) : null;
+  }
+
+  private async findEntryByIdempotencyKeyInTx(
+    tx: DbTransaction,
+    idempotencyKey: string
+  ): Promise<PointsLedgerEntry | null> {
+    const rows = await tx
+      .select()
+      .from(pointLedgerEntries)
+      .where(eq(pointLedgerEntries.idempotencyKey, idempotencyKey))
+      .limit(1);
+    return rows[0] ? mapEntry(rows[0]) : null;
+  }
+
+  private async resolveGuardedDenialInTx(
+    tx: DbTransaction,
+    idempotencyKey: string,
+    fingerprint: PointsLedgerIdempotencyFingerprint,
+    deniedReason: PointsLedgerResultReason,
+    userId: string
+  ): Promise<PointsLedgerMutationResult> {
+    const balanceAfter = await this.getBalanceInTx(tx, userId);
+    return resolveReplayAfterGuardedMutationDenial({
+      entry: await this.findEntryByIdempotencyKeyInTx(tx, idempotencyKey),
+      fingerprint,
+      balanceAfter,
+      deniedReason
+    });
   }
 
   private async incrementUserBalanceInTx(

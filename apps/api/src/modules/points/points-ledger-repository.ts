@@ -149,6 +149,25 @@ export function resolveIdempotentReplay(
   };
 }
 
+export function resolveReplayAfterGuardedMutationDenial(input: {
+  entry: PointsLedgerEntry | null;
+  fingerprint: PointsLedgerIdempotencyFingerprint;
+  balanceAfter: number | null;
+  deniedReason: PointsLedgerResultReason;
+}): PointsLedgerMutationResult {
+  if (input.entry !== null) {
+    return resolveIdempotentReplay(input.entry, input.fingerprint, input.balanceAfter);
+  }
+
+  return {
+    status: "denied",
+    entry: null,
+    ledgerEntryId: null,
+    balanceAfter: input.balanceAfter,
+    reason: input.deniedReason
+  };
+}
+
 function matchesIdempotencyFingerprint(
   entry: PointsLedgerEntry,
   fingerprint: PointsLedgerIdempotencyFingerprint
