@@ -75,6 +75,26 @@ describe("auth routes", () => {
     expect(accountService.loginCalls[0]?.guestSessionId).toBeNull();
   });
 
+  it("marks login cookie secure and expires it when secure cookies are enabled", async () => {
+    const accountService = new FakeAccountService();
+    const app = createTestApp(accountService, "guest", { secureCookies: true });
+
+    const response = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "telegram",
+        providerUserId: "12345",
+        displayName: "Kuba"
+      })
+    });
+
+    const setCookie = response.headers.get("set-cookie");
+    expect(response.status).toBe(200);
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("Expires=");
+  });
+
   it("requires user identity for link", async () => {
     const app = createTestApp(new FakeAccountService(), "guest");
 
@@ -168,7 +188,11 @@ describe("auth routes", () => {
   });
 });
 
-function createTestApp(accountService: FakeAccountService, identityKind: "guest" | "user") {
+function createTestApp(
+  accountService: FakeAccountService,
+  identityKind: "guest" | "user",
+  options: { secureCookies?: boolean } = {}
+) {
   const app = new Hono<TestEnv>();
   app.use("*", async (context, next) => {
     context.set(
@@ -190,7 +214,7 @@ function createTestApp(accountService: FakeAccountService, identityKind: "guest"
     "/api/auth",
     createAuthRoutes({
       accountService: accountService as unknown as AccountService,
-      secureCookies: false
+      secureCookies: options.secureCookies ?? false
     })
   );
   return app;

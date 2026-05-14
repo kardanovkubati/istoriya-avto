@@ -21,6 +21,10 @@ export type StoredUserSession = {
   revokedAt: Date | null;
 };
 
+export type AddIdentityResult =
+  | { ok: true; identity: StoredAuthIdentity }
+  | { ok: false; error: "identity_already_linked" };
+
 export interface AccountRepository {
   findAccountById(userId: string): Promise<StoredAccount | null>;
   findIdentity(provider: AuthProvider, providerUserId: string): Promise<StoredAuthIdentity | null>;
@@ -34,7 +38,7 @@ export interface AccountRepository {
     provider: AuthProvider;
     providerUserId: string;
     displayName: string | null;
-  }): Promise<StoredAuthIdentity>;
+  }): Promise<AddIdentityResult>;
   listIdentityProviders(userId: string): Promise<AuthProvider[]>;
   createUserSession(input: {
     userId: string;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   AccountService,
+  type AddIdentityResult,
   type AccountRepository,
   type AccountTransferResult,
   type StoredAccount,
@@ -126,6 +127,84 @@ describe("AccountService", () => {
     ).resolves.toEqual({ ok: false, error: "identity_already_linked" });
   });
 
+  it("fails when repository reports a concurrent identity link conflict", async () => {
+    const repository = new FakeAccountRepository();
+    const currentUser = repository.createUserWithIdentitySync({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: null
+    });
+    repository.nextAddIdentityResult = { ok: false, error: "identity_already_linked" };
+    const service = new AccountService({
+      repository,
+      userSessionService: new FakeUserSessionService()
+    });
+
+    await expect(
+      service.linkIdentity({
+        userId: currentUser.id,
+        provider: "phone",
+        providerUserId: "8 (900) 123-45-67",
+        displayName: null
+      })
+    ).resolves.toEqual({ ok: false, error: "identity_already_linked" });
+  });
+
+  it("succeeds when linking the same existing identity for the same user", async () => {
+    const repository = new FakeAccountRepository();
+    const user = repository.createUserWithIdentitySync({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: null
+    });
+    const service = new AccountService({
+      repository,
+      userSessionService: new FakeUserSessionService()
+    });
+
+    await expect(
+      service.linkIdentity({
+        userId: user.id,
+        provider: "telegram",
+        providerUserId: "12345",
+        displayName: null
+      })
+    ).resolves.toEqual({
+      ok: true,
+      account: {
+        id: user.id,
+        primaryContactProvider: "telegram",
+        identities: ["telegram"]
+      }
+    });
+  });
+
+  it("uses an existing account when createUserWithIdentity recovers a concurrent first login", async () => {
+    const repository = new FakeAccountRepository();
+    const existingUser = repository.createUserWithIdentitySync({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: null
+    });
+    repository.hideIdentityOnce = true;
+    repository.nextCreateUserResult = existingUser;
+    const service = new AccountService({
+      repository,
+      userSessionService: new FakeUserSessionService()
+    });
+
+    const result = await service.loginOrCreate({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: "Kuba",
+      guestSessionId: null
+    });
+
+    expect(result.account.id).toBe(existingUser.id);
+    expect(repository.users).toHaveLength(1);
+    expect(repository.identities).toHaveLength(1);
+  });
+
   it("does not merge accounts automatically", async () => {
     const repository = new FakeAccountRepository();
     const userA = repository.createUserWithIdentitySync({
@@ -181,6 +260,9 @@ class FakeUserSessionService extends UserSessionService {
 class FakeAccountRepository implements AccountRepository {
   readonly users: StoredAccount[] = [];
   readonly identities: StoredAuthIdentity[] = [];
+  nextAddIdentityResult: AddIdentityResult | null = null;
+  nextCreateUserResult: StoredAccount | null = null;
+  hideIdentityOnce = false;
   private nextUserId = 1;
   private nextIdentityId = 1;
 
@@ -188,6 +270,10 @@ class FakeAccountRepository implements AccountRepository {
     provider: StoredAuthIdentity["provider"],
     providerUserId: string
   ): Promise<StoredAuthIdentity | null> {
+    if (this.hideIdentityOnce) {
+      this.hideIdentityOnce = false;
+      return null;
+    }
     return (
       this.identities.find(
         (identity) =>
@@ -205,6 +291,11 @@ class FakeAccountRepository implements AccountRepository {
     providerUserId: string;
     displayName: string | null;
   }): Promise<StoredAccount> {
+    if (this.nextCreateUserResult !== null) {
+      const result = this.nextCreateUserResult;
+      this.nextCreateUserResult = null;
+      return result;
+    }
     return this.createUserWithIdentitySync(input);
   }
 
@@ -213,7 +304,12 @@ class FakeAccountRepository implements AccountRepository {
     provider: StoredAuthIdentity["provider"];
     providerUserId: string;
     displayName: string | null;
-  }): Promise<StoredAuthIdentity> {
+  }): Promise<AddIdentityResult> {
+    if (this.nextAddIdentityResult !== null) {
+      const result = this.nextAddIdentityResult;
+      this.nextAddIdentityResult = null;
+      return result;
+    }
     const existing = await this.findIdentity(input.provider, input.providerUserId);
     if (existing !== null) {
       throw new Error("identity_already_linked");
@@ -226,7 +322,7 @@ class FakeAccountRepository implements AccountRepository {
       displayName: input.displayName
     };
     this.identities.push(identity);
-    return identity;
+    return { ok: true, identity };
   }
 
   async listIdentityProviders(userId: string): Promise<StoredAuthIdentity["provider"][]> {

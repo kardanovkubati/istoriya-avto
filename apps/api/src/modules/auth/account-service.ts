@@ -7,6 +7,7 @@ import type {
 import type { UserSessionService } from "./user-session-service";
 
 export type {
+  AddIdentityResult,
   AccountRepository,
   StoredAccount,
   StoredAuthIdentity,
@@ -127,11 +128,14 @@ export class AccountService {
     }
 
     if (existingIdentity === null) {
-      await this.repository.addIdentity({
+      const addIdentityResult = await this.repository.addIdentity({
         userId: input.userId,
         ...identity,
         displayName: input.displayName
       });
+      if (!addIdentityResult.ok) {
+        return addIdentityResult;
+      }
     }
 
     const account = await this.requireAccount(input.userId);
