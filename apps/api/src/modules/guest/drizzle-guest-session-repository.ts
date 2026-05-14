@@ -71,19 +71,7 @@ export class DrizzleGuestSessionRepository
     guestSessionId: string;
     userId: string;
   }): Promise<number> {
-    const rowsToAssign = await db
-      .select({ id: reportUploads.id })
-      .from(reportUploads)
-      .where(
-        and(
-          eq(reportUploads.guestSessionId, input.guestSessionId),
-          isNull(reportUploads.userId)
-        )
-      );
-
-    if (rowsToAssign.length === 0) return 0;
-
-    await db
+    const updatedRows = await db
       .update(reportUploads)
       .set({
         userId: input.userId,
@@ -94,9 +82,10 @@ export class DrizzleGuestSessionRepository
           eq(reportUploads.guestSessionId, input.guestSessionId),
           isNull(reportUploads.userId)
         )
-      );
+      )
+      .returning({ id: reportUploads.id });
 
-    return rowsToAssign.length;
+    return updatedRows.length;
   }
 
   async findUntransferredGuestPointGrants(
@@ -132,15 +121,23 @@ export class DrizzleGuestSessionRepository
     guestPointGrantId: string;
     userId: string;
     ledgerEntryId: string;
-  }): Promise<void> {
-    await db
+  }): Promise<boolean> {
+    const updatedRows = await db
       .update(guestPointGrants)
       .set({
         transferredToUserId: input.userId,
         transferredLedgerEntryId: input.ledgerEntryId,
         updatedAt: new Date()
       })
-      .where(eq(guestPointGrants.id, input.guestPointGrantId));
+      .where(
+        and(
+          eq(guestPointGrants.id, input.guestPointGrantId),
+          isNull(guestPointGrants.transferredToUserId)
+        )
+      )
+      .returning({ id: guestPointGrants.id });
+
+    return updatedRows.length > 0;
   }
 
   async markGuestEventsTransferred(input: {

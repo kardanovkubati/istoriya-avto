@@ -28,6 +28,12 @@ export type LoginResult = {
   transferredGuestContext: AccountTransferResult;
 };
 
+const EMPTY_TRANSFER_RESULT: AccountTransferResult = {
+  pointGrants: 0,
+  reportUploads: 0,
+  selectedUnlockVin: null
+};
+
 export type LinkIdentityResult =
   | {
       ok: true;
@@ -84,18 +90,14 @@ export class AccountService {
             displayName: input.displayName
           })
         : await this.requireAccount(existingIdentity.userId);
+    const session = await this.userSessionService.createUserSession(account.id);
     const transferredGuestContext =
       input.guestSessionId === null
-        ? {
-            pointGrants: 0,
-            reportUploads: 0,
-            selectedUnlockVin: null
-          }
-        : await this.transferGuestContext({
+        ? EMPTY_TRANSFER_RESULT
+        : await this.transferGuestContextSafely({
             guestSessionId: input.guestSessionId,
             userId: account.id
           });
-    const session = await this.userSessionService.createUserSession(account.id);
 
     return {
       account: await this.accountSummary(account),
@@ -149,6 +151,17 @@ export class AccountService {
       throw new Error("account_not_found");
     }
     return account;
+  }
+
+  private async transferGuestContextSafely(input: {
+    guestSessionId: string;
+    userId: string;
+  }): Promise<AccountTransferResult> {
+    try {
+      return await this.transferGuestContext(input);
+    } catch {
+      return EMPTY_TRANSFER_RESULT;
+    }
   }
 
   private async accountSummary(account: StoredAccount): Promise<AccountSummary> {

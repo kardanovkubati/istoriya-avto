@@ -163,6 +163,79 @@ describe("GuestContextTransferService", () => {
     expect(repository.markedGrants).toEqual([]);
   });
 
+  it("keeps transferring remaining guest grants when one ledger grant fails", async () => {
+    const repository = new FakeGuestContextTransferRepository();
+    repository.untransferredGrants = [
+      guestPointGrant({
+        id: "grant-1",
+        guestSessionId: "guest-1",
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        reportFingerprintId: "fingerprint-1"
+      }),
+      guestPointGrant({
+        id: "grant-2",
+        guestSessionId: "guest-1",
+        vehicleId: "vehicle-2",
+        reportUploadId: "upload-2",
+        reportFingerprintId: "fingerprint-2"
+      })
+    ];
+    const ledger = new FakeGuestPointLedgerGrantPort();
+    ledger.nextErrors.push(new Error("ledger_unavailable"));
+    ledger.nextResults.push({ status: "applied", ledgerEntryId: "ledger-2" });
+    const service = new GuestContextTransferService({ repository, ledger });
+
+    const result = await service.transferToUser({
+      guestSessionId: "guest-1",
+      userId: "user-1"
+    });
+
+    expect(result.pointGrants).toBe(1);
+    expect(ledger.calls.map((call) => call.reportUploadId)).toEqual(["upload-1", "upload-2"]);
+    expect(repository.markedGrants).toEqual([
+      {
+        guestPointGrantId: "grant-2",
+        userId: "user-1",
+        ledgerEntryId: "ledger-2"
+      }
+    ]);
+    expect(repository.markedEvents).toEqual([
+      { guestSessionId: "guest-1", userId: "user-1" }
+    ]);
+  });
+
+  it("does not count a ledger grant when the repository cannot mark it transferred", async () => {
+    const repository = new FakeGuestContextTransferRepository();
+    repository.untransferredGrants = [
+      guestPointGrant({
+        id: "grant-1",
+        guestSessionId: "guest-1",
+        vehicleId: "vehicle-1",
+        reportUploadId: "upload-1",
+        reportFingerprintId: "fingerprint-1"
+      })
+    ];
+    repository.markGrantResults.push(false);
+    const ledger = new FakeGuestPointLedgerGrantPort();
+    ledger.nextResults.push({ status: "applied", ledgerEntryId: "ledger-1" });
+    const service = new GuestContextTransferService({ repository, ledger });
+
+    const result = await service.transferToUser({
+      guestSessionId: "guest-1",
+      userId: "user-1"
+    });
+
+    expect(result.pointGrants).toBe(0);
+    expect(repository.markedGrants).toEqual([
+      {
+        guestPointGrantId: "grant-1",
+        userId: "user-1",
+        ledgerEntryId: "ledger-1"
+      }
+    ]);
+  });
+
   it("does not transfer uploads, points, or events when guest session claim fails", async () => {
     const repository = new FakeGuestContextTransferRepository();
     repository.claimResult = false;
@@ -208,6 +281,7 @@ class FakeGuestContextTransferRepository implements GuestContextTransferReposito
     userId: string;
     ledgerEntryId: string;
   }> = [];
+  readonly markGrantResults: boolean[] = [];
   readonly markedEvents: Array<{ guestSessionId: string; userId: string }> = [];
 
   async claimGuestSession(input: {
@@ -238,8 +312,13 @@ class FakeGuestContextTransferRepository implements GuestContextTransferReposito
     guestPointGrantId: string;
     userId: string;
     ledgerEntryId: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     this.markedGrants.push(input);
+    const result = this.markGrantResults.shift();
+    if (result !== undefined) {
+      return result;
+    }
+    return true;
   }
 
   async markGuestEventsTransferred(input: {
@@ -258,11 +337,16 @@ class FakeGuestPointLedgerGrantPort implements GuestPointLedgerGrantPort {
   readonly calls: Array<Parameters<GuestPointLedgerGrantPort["grantReportPoint"]>[0]> = [];
   readonly nextResults: Array<Awaited<ReturnType<GuestPointLedgerGrantPort["grantReportPoint"]>>> =
     [];
+  readonly nextErrors: Error[] = [];
 
   async grantReportPoint(
     input: Parameters<GuestPointLedgerGrantPort["grantReportPoint"]>[0]
   ): ReturnType<GuestPointLedgerGrantPort["grantReportPoint"]> {
     this.calls.push(input);
+    const error = this.nextErrors.shift();
+    if (error !== undefined) {
+      throw error;
+    }
     return this.nextResults.shift() ?? { status: "applied", ledgerEntryId: "ledger-default" };
   }
 }

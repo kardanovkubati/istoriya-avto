@@ -102,6 +102,34 @@ describe("AccountService", () => {
     });
   });
 
+  it("login still creates a user session when guest context transfer fails", async () => {
+    const repository = new FakeAccountRepository();
+    const sessions = new FakeUserSessionService();
+    const service = new AccountService({
+      repository,
+      userSessionService: sessions,
+      transferGuestContext: async () => {
+        throw new Error("transfer_failed_after_claim");
+      }
+    });
+
+    const result = await service.loginOrCreate({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: "Kuba",
+      guestSessionId: "guest-1"
+    });
+
+    expect(result.account.id).toBe("user-1");
+    expect(result.sessionToken).toBe("token-for-user-1");
+    expect(result.transferredGuestContext).toEqual({
+      pointGrants: 0,
+      reportUploads: 0,
+      selectedUnlockVin: null
+    });
+    expect(sessions.createdForUserIds).toEqual(["user-1"]);
+  });
+
   it("login without guestSessionId returns empty transfer summary without calling callback", async () => {
     const repository = new FakeAccountRepository();
     let transferCalls = 0;

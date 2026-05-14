@@ -27,7 +27,7 @@ export interface GuestContextTransferRepository {
     guestPointGrantId: string;
     userId: string;
     ledgerEntryId: string;
-  }): Promise<void>;
+  }): Promise<boolean>;
   markGuestEventsTransferred(input: { guestSessionId: string; userId: string }): Promise<void>;
   findLatestSelectedUnlockVin(guestSessionId: string): Promise<string | null>;
 }

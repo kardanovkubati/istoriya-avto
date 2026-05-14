@@ -25,6 +25,12 @@ export type GuestPointLedgerGrantPort = {
   }>;
 };
 
+const EMPTY_TRANSFER_RESULT: GuestContextTransferResult = {
+  pointGrants: 0,
+  reportUploads: 0,
+  selectedUnlockVin: null
+};
+
 export class GuestContextTransferService {
   constructor(
     private readonly options: {
@@ -45,20 +51,12 @@ export class GuestContextTransferService {
     });
 
     if (!claimed) {
-      return {
-        pointGrants: 0,
-        reportUploads: 0,
-        selectedUnlockVin: null
-      };
+      return EMPTY_TRANSFER_RESULT;
     }
 
-    const selectedUnlockVin = await this.options.repository.findLatestSelectedUnlockVin(
-      input.guestSessionId
-    );
-    const reportUploads = await this.options.repository.assignGuestUploadsToUser(input);
-    const grants = await this.options.repository.findUntransferredGuestPointGrants(
-      input.guestSessionId
-    );
+    const selectedUnlockVin = await this.findLatestSelectedUnlockVin(input.guestSessionId);
+    const reportUploads = await this.assignGuestUploadsToUser(input);
+    const grants = await this.findUntransferredGuestPointGrants(input.guestSessionId);
     let pointGrants = 0;
     const transferredGrantIds = new Set<string>();
 
@@ -71,7 +69,7 @@ export class GuestContextTransferService {
         continue;
       }
 
-      const ledgerResult = await this.options.ledger.grantReportPoint({
+      const ledgerResult = await this.grantReportPoint({
         userId: input.userId,
         vehicleId: grant.vehicleId,
         reportUploadId: grant.reportUploadId,
@@ -84,11 +82,14 @@ export class GuestContextTransferService {
         continue;
       }
 
-      await this.options.repository.markGuestPointGrantTransferred({
+      const marked = await this.markGuestPointGrantTransferred({
         guestPointGrantId: grant.id,
         userId: input.userId,
         ledgerEntryId: ledgerResult.ledgerEntryId
       });
+      if (!marked) {
+        continue;
+      }
       transferredGrantIds.add(grant.id);
 
       if (
@@ -99,7 +100,7 @@ export class GuestContextTransferService {
       }
     }
 
-    await this.options.repository.markGuestEventsTransferred(input);
+    await this.markGuestEventsTransferred(input);
 
     return {
       pointGrants,
@@ -110,6 +111,69 @@ export class GuestContextTransferService {
 
   private now(): Date {
     return this.options.now?.() ?? new Date();
+  }
+
+  private async findLatestSelectedUnlockVin(guestSessionId: string): Promise<string | null> {
+    try {
+      return await this.options.repository.findLatestSelectedUnlockVin(guestSessionId);
+    } catch {
+      return null;
+    }
+  }
+
+  private async assignGuestUploadsToUser(input: {
+    guestSessionId: string;
+    userId: string;
+  }): Promise<number> {
+    try {
+      return await this.options.repository.assignGuestUploadsToUser(input);
+    } catch {
+      return 0;
+    }
+  }
+
+  private async findUntransferredGuestPointGrants(
+    guestSessionId: string
+  ): Promise<GuestPointGrant[]> {
+    try {
+      return await this.options.repository.findUntransferredGuestPointGrants(guestSessionId);
+    } catch {
+      return [];
+    }
+  }
+
+  private async grantReportPoint(
+    input: Parameters<GuestPointLedgerGrantPort["grantReportPoint"]>[0]
+  ): ReturnType<GuestPointLedgerGrantPort["grantReportPoint"]> {
+    try {
+      return await this.options.ledger.grantReportPoint(input);
+    } catch {
+      return {
+        status: "denied",
+        ledgerEntryId: null
+      };
+    }
+  }
+
+  private async markGuestPointGrantTransferred(input: {
+    guestPointGrantId: string;
+    userId: string;
+    ledgerEntryId: string;
+  }): Promise<boolean> {
+    try {
+      return await this.options.repository.markGuestPointGrantTransferred(input);
+    } catch {
+      return false;
+    }
+  }
+
+  private async markGuestEventsTransferred(input: {
+    guestSessionId: string;
+    userId: string;
+  }): Promise<void> {
+    try {
+      await this.options.repository.markGuestEventsTransferred(input);
+    } catch {}
   }
 }
 
