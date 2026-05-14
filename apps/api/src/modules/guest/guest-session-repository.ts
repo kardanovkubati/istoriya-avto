@@ -5,6 +5,33 @@ export type StoredGuestSession = {
   claimedByUserId: string | null;
 };
 
+export type GuestPointGrant = {
+  id: string;
+  guestSessionId: string;
+  vehicleId: string | null;
+  reportUploadId: string | null;
+  reportFingerprintId: string | null;
+  points: 1;
+  reason: string;
+};
+
+export interface GuestContextTransferRepository {
+  claimGuestSession(input: {
+    guestSessionId: string;
+    userId: string;
+    claimedAt: Date;
+  }): Promise<boolean>;
+  assignGuestUploadsToUser(input: { guestSessionId: string; userId: string }): Promise<number>;
+  findUntransferredGuestPointGrants(guestSessionId: string): Promise<GuestPointGrant[]>;
+  markGuestPointGrantTransferred(input: {
+    guestPointGrantId: string;
+    userId: string;
+    ledgerEntryId: string;
+  }): Promise<void>;
+  markGuestEventsTransferred(input: { guestSessionId: string; userId: string }): Promise<void>;
+  findLatestSelectedUnlockVin(guestSessionId: string): Promise<string | null>;
+}
+
 export interface GuestSessionRepository {
   create(input: { tokenHash: string; expiresAt: Date }): Promise<StoredGuestSession>;
   findByTokenHash(tokenHash: string): Promise<StoredGuestSession | null>;

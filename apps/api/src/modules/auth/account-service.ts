@@ -5,6 +5,7 @@ import type {
   StoredAuthIdentity
 } from "./account-repository";
 import type { UserSessionService } from "./user-session-service";
+import type { GuestContextTransferResult } from "../guest/guest-context-transfer-service";
 
 export type {
   AddIdentityResult,
@@ -20,11 +21,7 @@ export type AccountSummary = {
   identities: AuthProvider[];
 };
 
-export type AccountTransferResult = {
-  pointGrants: number;
-  reportUploads: number;
-  selectedUnlockVin: string | null;
-};
+export type AccountTransferResult = GuestContextTransferResult;
 
 export type LoginResult = {
   account: AccountSummary;

@@ -71,6 +71,68 @@ describe("AccountService", () => {
     expect(repository.identities).toHaveLength(1);
   });
 
+  it("login with guestSessionId calls transfer callback and includes its summary", async () => {
+    const repository = new FakeAccountRepository();
+    const transferCalls: Array<{ guestSessionId: string; userId: string }> = [];
+    const service = new AccountService({
+      repository,
+      userSessionService: new FakeUserSessionService(),
+      transferGuestContext: async (input) => {
+        transferCalls.push(input);
+        return {
+          pointGrants: 1,
+          reportUploads: 2,
+          selectedUnlockVin: "JTDBR32E720123456"
+        };
+      }
+    });
+
+    const result = await service.loginOrCreate({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: "Kuba",
+      guestSessionId: "guest-1"
+    });
+
+    expect(transferCalls).toEqual([{ guestSessionId: "guest-1", userId: "user-1" }]);
+    expect(result.transferredGuestContext).toEqual({
+      pointGrants: 1,
+      reportUploads: 2,
+      selectedUnlockVin: "JTDBR32E720123456"
+    });
+  });
+
+  it("login without guestSessionId returns empty transfer summary without calling callback", async () => {
+    const repository = new FakeAccountRepository();
+    let transferCalls = 0;
+    const service = new AccountService({
+      repository,
+      userSessionService: new FakeUserSessionService(),
+      transferGuestContext: async () => {
+        transferCalls += 1;
+        return {
+          pointGrants: 1,
+          reportUploads: 1,
+          selectedUnlockVin: "JTDBR32E720123456"
+        };
+      }
+    });
+
+    const result = await service.loginOrCreate({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: "Kuba",
+      guestSessionId: null
+    });
+
+    expect(transferCalls).toBe(0);
+    expect(result.transferredGuestContext).toEqual({
+      pointGrants: 0,
+      reportUploads: 0,
+      selectedUnlockVin: null
+    });
+  });
+
   it("links phone to current user when identity is free", async () => {
     const repository = new FakeAccountRepository();
     const user = repository.createUserWithIdentitySync({
