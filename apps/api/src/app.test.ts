@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { MiddlewareHandler } from "hono";
 import { createApp } from "./app";
+import { env } from "./env";
 
 const app = createApp({ requestContextMiddleware: null });
 
@@ -121,6 +122,40 @@ describe("api app", () => {
 
       expect(actualResponse.headers.get("access-control-allow-origin")).toBe(origin);
       expect(actualResponse.headers.get("access-control-allow-credentials")).toBe("true");
+    }
+  });
+
+  it("allows credentialed browser calls from the configured public web origin", async () => {
+    const originalPublicWebUrl = env.PUBLIC_WEB_URL;
+    env.PUBLIC_WEB_URL = "https://web.istoriya-avto.example";
+
+    try {
+      const app = createApp({ requestContextMiddleware: null });
+
+      const preflightResponse = await app.request("/api/search/detect", {
+        method: "OPTIONS",
+        headers: {
+          origin: env.PUBLIC_WEB_URL,
+          "access-control-request-method": "POST"
+        }
+      });
+
+      expect(preflightResponse.headers.get("access-control-allow-origin")).toBe(env.PUBLIC_WEB_URL);
+      expect(preflightResponse.headers.get("access-control-allow-credentials")).toBe("true");
+
+      const actualResponse = await app.request("/api/search/detect", {
+        method: "POST",
+        headers: {
+          origin: env.PUBLIC_WEB_URL,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ query: "А123ВС777" })
+      });
+
+      expect(actualResponse.headers.get("access-control-allow-origin")).toBe(env.PUBLIC_WEB_URL);
+      expect(actualResponse.headers.get("access-control-allow-credentials")).toBe("true");
+    } finally {
+      env.PUBLIC_WEB_URL = originalPublicWebUrl;
     }
   });
 

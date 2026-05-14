@@ -19,7 +19,7 @@ export function createApp(options: CreateAppOptions = {}) {
   app.use(
     "*",
     cors({
-      origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+      origin: [env.PUBLIC_WEB_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
       allowHeaders: ["content-type"],
       allowMethods: ["GET", "POST", "OPTIONS"],
       credentials: true
