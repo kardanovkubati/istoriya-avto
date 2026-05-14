@@ -1,15 +1,15 @@
 # История Авто: MVP Roadmap
 
-Дата: 2026-05-13
-Статус: рабочая дорожная карта после Milestone 2
+Дата: 2026-05-14
+Статус: рабочая дорожная карта после Milestone 3
 
 ## Текущее состояние
 
 Готов foundation-слой:
 
 - TypeScript/Bun monorepo: `apps/api`, `apps/web`, `packages/shared`.
-- Hono API: `/health`, `/api/search/detect`.
-- React/Vite mobile-first shell с умным полем.
+- Hono API: `/health`, `/api/search/detect`, `/api/search`.
+- React/Vite mobile-first shell с умным полем, results flow и preview cards.
 - Shared query detection: VIN, госномер, Avito/Auto.ru/Drom URLs.
 - PostgreSQL/Drizzle schema и первая миграция.
 - Points policy с тестами и edge-case hardening.
@@ -28,7 +28,26 @@
 - Upload route hardening: обязательный `Content-Length`, max-size guard, PDF magic-byte check, запрет client-supplied identity fields.
 - Проверки на `master`: `bun run test`, `bun run typecheck`, `bun run --cwd apps/api db:generate`.
 
-Главная следующая цель: запустить пользовательский путь поиска, preview и unlock flow на данных Milestone 2.
+Готов Milestone 2:
+
+- Observation model поверх `report_uploads.raw_data.parseResult`.
+- Нормализация фактов по VIN из parsed uploads.
+- Merge/aggregation service с rebuild snapshot после успешной загрузки.
+- Хранение конфликтов фактов без молчаливого затирания.
+- Preview API и full report read model.
+- Базовая оценка прозрачности истории.
+- Source-brand leak guard для пользовательского report response.
+
+Готов Milestone 3:
+
+- Search API `POST /api/search` по VIN, внутреннему госномеру и ссылке объявления.
+- Authless Avito listing snapshot ingestion для публичного HTML с bounded fetch.
+- Internal-only поведение для госномера до подключения внешних lookup-источников.
+- Candidate preview cards без госномера, без source-brand leak и без раскрытия full report.
+- Frontend search results flow, empty state и unlock boundary.
+- `GET /api/vehicles/:vin/report` закрыт без access grant; реальное списание баллов и подписок оставлено на Milestone 4.
+
+Главная следующая цель: запустить auth, guest session, points ledger и реальный access service в Milestone 4.
 
 ## Milestone 1: Report Ingestion And Autoteka Parser
 
@@ -63,7 +82,7 @@ Exit criteria:
 
 ## Milestone 2: Vehicle Aggregation And Report Read Model
 
-Статус: готов к merge на `master` 2026-05-13.
+Статус: готов на `master` 2026-05-13.
 
 Цель: из одного или нескольких `report_upload` строится один сводный отчет по VIN.
 
@@ -96,22 +115,36 @@ Exit criteria:
 
 ## Milestone 3: Search, Preview, And Unlock Flow
 
+Статус: готов на `master` 2026-05-14.
+
 Цель: главный пользовательский сценарий начинает работать на данных.
 
-Входит:
+Готово:
 
 - Search API по VIN/госномеру/ссылке.
-- Snapshot объявления по authless URL, сначала Avito как приоритет.
+- Snapshot объявления по authless Avito URL с приватным хранением raw HTML metadata.
 - Candidate preview cards.
-- Preview rules: фото, марка/модель/год, цена/пробег из объявления, частично скрытый VIN, без госномера.
-- Empty state: отчета пока нет, загрузите отчет и получите балл на будущее.
+- Preview rules: фото если безопасно, марка/модель/год, цена/пробег, частично скрытый VIN, без госномера.
+- Empty state: отчета пока нет, загрузите отчет.
 - UI экран результатов и preview-карточек.
+- Unlock boundary без реального списания баллов/подписок.
+- Full report API закрыт без access grant.
+- Source-brand leak guard для search/report пользовательских responses.
+- Bounded authless fetch: timeout, content-type guard, content-length guard, streamed max byte limit.
+
+MVP-ограничения:
+
+- Госномер ищется только по внутренним `vehicle_identifiers`; внешние lookup-источники появятся позже.
+- Authless Avito URL используется только для preview snapshot; названия сторонних сервисов не показываются как источники конкретных фактов.
+- Auto.ru и Drom URL распознаются, но parser/capture не входят в Milestone 3.
+- Ledger, auth, подписки и настоящее списание доступа остаются в Milestone 4.
 
 Exit criteria:
 
 - Пользователь вводит VIN/госномер/ссылку и видит кандидатов.
 - Full report не раскрывается без доступа.
 - Ошибочный выбор кандидата не создает возврат балла.
+- `bun run test`, `bun run typecheck`, `bun run --cwd apps/web build`, `bun run --cwd apps/api db:generate` зеленые.
 
 ## Milestone 4: Auth, Guest Session, Points Ledger
 
@@ -235,11 +268,12 @@ Exit criteria:
 
 ## Recommended Next Session
 
-Следующая сессия должна начать с Milestone 3.
+Следующая сессия должна начать с Milestone 4.
 
 Первый рабочий результат следующей сессии:
 
-1. Создать implementation plan для `Search, Preview, And Unlock Flow`.
-2. Спроектировать search API по VIN/госномеру/ссылке поверх текущего read model.
-3. Связать preview карточки с существующим `/api/vehicles/:vin/preview`.
-4. Подготовить unlock boundary без реального списания баллов до Milestone 4.
+1. Создать implementation plan для `Auth, Guest Session, Points Ledger`.
+2. Спроектировать guest session на 7 дней и перенос guest context в аккаунт.
+3. Спроектировать points ledger: начисления, списания, корректировки, idempotency и ограничения по VIN/fingerprint.
+4. Подключить access service к unlock boundary так, чтобы подписочный лимит тратился раньше баллов.
+5. Обновить UI статуса доступа: тариф, остаток новых отчетов, баллы и locked/unlocked states.
