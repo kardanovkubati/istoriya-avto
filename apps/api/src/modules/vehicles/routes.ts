@@ -1,16 +1,28 @@
 import { detectSearchQuery } from "@istoriya-avto/shared";
 import { type Context, Hono } from "hono";
+import { z } from "zod";
+import { db } from "../../db/client";
 import {
   assertNoSourceBrandLeak,
   type VehicleFullReportReadModel,
   type VehiclePreviewReadModel
 } from "./report-read-model";
 import {
-  createLockedReportAccessService,
   type ReportAccessDecision,
-  type ReportAccessService
+  ReportAccessService,
+  type UnlockCommitDecision,
+  type UnlockPreviewDecision,
+  maskVin
 } from "../access/report-access-service";
+import { DrizzleReportAccessRepository } from "../access/drizzle-report-access-repository";
+import { getRequestIdentity } from "../context/request-context";
+import { DrizzlePointsLedgerRepository } from "../points/drizzle-points-ledger-repository";
+import { PointsLedgerService } from "../points/points-ledger-service";
 import { DrizzleVehicleReportRepository } from "./drizzle-vehicle-report-repository";
+
+const unlockPayloadSchema = z.object({
+  idempotencyKey: z.string().min(1)
+});
 
 export type VehicleRoutesDependencies = {
   accessService: ReportAccessService;
@@ -59,10 +71,11 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
       return invalidVin(context);
     }
 
+    const identity = getRequestIdentity(context);
     const access = await dependencies.accessService.canViewFullReport({
       vin,
-      userId: null,
-      guestSessionId: null
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null
     });
     if (access.status !== "granted") {
       return lockedReport(context, access);
@@ -84,40 +97,90 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
       return invalidVin(context);
     }
 
-    const preview = await dependencies.findPreviewByVin(vin);
-    if (preview === null) {
+    const identity = getRequestIdentity(context);
+    const unlock = await dependencies.accessService.previewUnlock({
+      vehicle: { kind: "vin", vin },
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null
+    });
+
+    if (unlock.status === "not_found") {
       return vehicleReportNotFound(context);
     }
 
-    const access = await dependencies.accessService.canViewFullReport({
-      vin,
-      userId: null,
-      guestSessionId: null
-    });
+    return context.json({ unlock });
+  });
 
-    if (access.status === "granted") {
-      return context.json({ unlock: access });
+  routes.post("/:vin/unlock", async (context) => {
+    const vin = parseVin(context.req.param("vin"));
+    if (vin === null) {
+      return invalidVin(context);
     }
 
-    return context.json({
-      unlock: {
-        status: access.status,
-        vinMasked: preview.vinMasked,
-        options: access.options,
-        willSpendPoints: false,
-        message: "Списание баллов и подписочных лимитов появится на следующем этапе.",
-        warning: access.warning
-      }
+    const payload = await parseUnlockPayload(context.req.json());
+    if (payload === null) {
+      return invalidUnlockRequest(context);
+    }
+
+    const identity = getRequestIdentity(context);
+    const result = await dependencies.accessService.unlock({
+      vehicle: { kind: "vin", vin },
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null,
+      idempotencyKey: payload.idempotencyKey
     });
+
+    return unlockCommitResponse(context, result, { includeVin: true });
+  });
+
+  routes.post("/by-id/:vehicleId/unlock-intent", async (context) => {
+    const vehicleId = context.req.param("vehicleId");
+    const identity = getRequestIdentity(context);
+    const unlock = await dependencies.accessService.previewUnlock({
+      vehicle: { kind: "vehicle_id", vehicleId },
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null
+    });
+
+    if (unlock.status === "not_found") {
+      return vehicleReportNotFound(context);
+    }
+
+    return context.json({ unlock });
+  });
+
+  routes.post("/by-id/:vehicleId/unlock", async (context) => {
+    const vehicleId = context.req.param("vehicleId");
+    const payload = await parseUnlockPayload(context.req.json());
+    if (payload === null) {
+      return invalidUnlockRequest(context);
+    }
+
+    const identity = getRequestIdentity(context);
+    const result = await dependencies.accessService.unlock({
+      vehicle: { kind: "vehicle_id", vehicleId },
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null,
+      idempotencyKey: payload.idempotencyKey
+    });
+
+    return unlockCommitResponse(context, result, { includeVin: false });
   });
 
   return routes;
 }
 
 const vehicleReportRepository = new DrizzleVehicleReportRepository();
+const vehicleAccessRepository = new DrizzleReportAccessRepository(db);
+const pointsLedgerService = new PointsLedgerService({
+  repository: new DrizzlePointsLedgerRepository(db)
+});
 
 export const vehicleRoutes = createVehicleRoutes({
-  accessService: createLockedReportAccessService(),
+  accessService: new ReportAccessService({
+    repository: vehicleAccessRepository,
+    pointsLedgerService
+  }),
   findPreviewByVin: (vin) => vehicleReportRepository.findPreviewByVin(vin),
   findFullReportByVin: (vin) => vehicleReportRepository.findFullReportByVin(vin)
 });
@@ -152,15 +215,112 @@ function vehicleReportNotFound(context: Context) {
   );
 }
 
-function lockedReport(context: Context, access: Extract<ReportAccessDecision, { status: "locked" }>) {
+async function parseUnlockPayload(jsonPromise: Promise<unknown>) {
+  const json = await jsonPromise.catch(() => null);
+  const result = unlockPayloadSchema.safeParse(json);
+  return result.success ? result.data : null;
+}
+
+function invalidUnlockRequest(context: Context) {
+  return context.json(
+    {
+      error: {
+        code: "invalid_request",
+        message: "Передайте ключ идемпотентности открытия отчета."
+      }
+    },
+    400
+  );
+}
+
+function lockedReport(
+  context: Context,
+  access: Exclude<ReportAccessDecision, { status: "granted" }>
+) {
+  if (access.status === "auth_required") {
+    return context.json(
+      {
+        error: {
+          code: "auth_required",
+          message: "Войдите, чтобы открыть полный отчет.",
+          unlock: withoutVehicleId(access)
+        }
+      },
+      401
+    );
+  }
+
   return context.json(
     {
       error: {
         code: "vehicle_report_locked",
         message: "Полный отчет закрыт.",
-        unlock: access
+        unlock: withoutVehicleId(access)
       }
     },
     403
   );
+}
+
+function unlockCommitResponse(
+  context: Context,
+  result: UnlockCommitDecision,
+  options: { includeVin: boolean }
+) {
+  if (result.status === "not_found") {
+    return vehicleReportNotFound(context);
+  }
+
+  if (result.status === "auth_required") {
+    return context.json(
+      {
+        error: {
+          code: "auth_required",
+          message: "Войдите, чтобы открыть полный отчет.",
+          unlock: withoutVehicleId(result)
+        }
+      },
+      401
+    );
+  }
+
+  if (result.status === "payment_required") {
+    return context.json(
+      {
+        error: {
+          code: "payment_required",
+          message: result.message,
+          unlock: withoutVehicleId(result)
+        }
+      },
+      402
+    );
+  }
+
+  return context.json({
+    access: options.includeVin
+      ? {
+          status: result.status,
+          method: result.method,
+          vehicleId: result.vehicleId,
+          vin: result.vin
+        }
+      : {
+          status: result.status,
+          method: result.method,
+          vehicleId: result.vehicleId,
+          vinMasked: maskVin(result.vin)
+        },
+    entitlements: result.entitlements
+  });
+}
+
+function withoutVehicleId<
+  T extends ReportAccessDecision | UnlockPreviewDecision | UnlockCommitDecision
+>(result: T) {
+  if ("vehicleId" in result) {
+    const { vehicleId: _vehicleId, ...rest } = result;
+    return rest;
+  }
+  return result;
 }

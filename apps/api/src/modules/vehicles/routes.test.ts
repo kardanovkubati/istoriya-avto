@@ -1,9 +1,19 @@
 import { describe, expect, it } from "bun:test";
+import { Hono } from "hono";
 import type {
   VehicleFullReportReadModel,
   VehiclePreviewReadModel
 } from "./report-read-model";
-import { createLockedReportAccessService } from "../access/report-access-service";
+import type {
+  ReportAccessDecision,
+  ReportAccessService,
+  UnlockCommitDecision,
+  UnlockPreviewDecision
+} from "../access/report-access-service";
+import {
+  REQUEST_IDENTITY_KEY,
+  type RequestIdentity
+} from "../context/request-context";
 import { createVehicleRoutes, type VehicleRoutesDependencies } from "./routes";
 
 const VALID_VIN = "XTA210990Y2765499";
@@ -11,9 +21,9 @@ const VALID_VIN = "XTA210990Y2765499";
 describe("vehicle routes", () => {
   it("returns vehicle preview by VIN", async () => {
     const dependencies = createDependencies();
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies);
 
-    const response = await routes.request(`/${VALID_VIN}/preview`);
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/preview`);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
@@ -25,19 +35,20 @@ describe("vehicle routes", () => {
 
   it("locks full report by default before repository lookup", async () => {
     const dependencies = createDependencies();
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies, guestIdentity());
 
-    const response = await routes.request(`/${VALID_VIN}/report`);
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/report`);
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(401);
     expect(await response.json()).toEqual({
       error: {
-        code: "vehicle_report_locked",
-        message: "Полный отчет закрыт.",
+        code: "auth_required",
+        message: "Войдите, чтобы открыть полный отчет.",
         unlock: {
-          status: "locked",
-          options: ["upload_report", "choose_plan"],
-          willSpendPoints: false,
+          status: "auth_required",
+          vinMasked: "XTA2109********99",
+          options: ["telegram", "max", "phone"],
+          message: "Войдите, чтобы закрепить доступ к отчету.",
           warning:
             "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
         }
@@ -50,13 +61,13 @@ describe("vehicle routes", () => {
     const dependencies = createDependencies({
       accessService: {
         async canViewFullReport() {
-          return { status: "granted", method: "test_override" };
+          return { status: "granted", method: "test_override", vehicleId: "vehicle-1" };
         }
-      }
+      } as unknown as ReportAccessService
     });
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies, userIdentity());
 
-    const response = await routes.request(`/${VALID_VIN}/report`);
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/report`);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ report: fullReportReadModel() });
@@ -67,13 +78,13 @@ describe("vehicle routes", () => {
     const dependencies = createDependencies({
       accessService: {
         async canViewFullReport() {
-          return { status: "granted", method: "test_override" };
+          return { status: "granted", method: "test_override", vehicleId: "vehicle-1" };
         }
-      }
+      } as unknown as ReportAccessService
     });
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies, userIdentity());
 
-    const response = await routes.request(`/${VALID_VIN}/report`);
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/report`);
     const body = await response.json();
     const serialized = JSON.stringify(body);
 
@@ -86,35 +97,209 @@ describe("vehicle routes", () => {
     expect(dependencies.previewCalls).toEqual([]);
   });
 
-  it("returns unlock intent without revealing full report", async () => {
-    const dependencies = createDependencies();
-    const routes = createVehicleRoutes(dependencies);
+  it("returns guest unlock intent without revealing full report", async () => {
+    const accessService = new FakeAccessService();
+    accessService.previewResult = authRequiredPreview();
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, guestIdentity());
 
-    const response = await routes.request(`/${VALID_VIN}/unlock-intent`, {
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/unlock-intent`, {
       method: "POST"
     });
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({
       unlock: {
-        status: "locked",
+        status: "auth_required",
         vinMasked: "XTA2109********99",
-        options: ["upload_report", "choose_plan"],
-        willSpendPoints: false,
-        message: "Списание баллов и подписочных лимитов появится на следующем этапе.",
+        options: ["telegram", "max", "phone"],
+        message: "Войдите, чтобы закрепить доступ к отчету.",
         warning:
           "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
       }
     });
-    expect(dependencies.previewCalls).toEqual([VALID_VIN]);
+    expect(accessService.previewCalls).toEqual([
+      {
+        vehicle: { kind: "vin", vin: VALID_VIN },
+        userId: null,
+        guestSessionId: "guest-1"
+      }
+    ]);
+    expect(dependencies.previewCalls).toEqual([]);
     expect(dependencies.reportCalls).toEqual([]);
+  });
+
+  it("passes user identity to full report access check", async () => {
+    const accessService = new FakeAccessService();
+    accessService.reportResult = { status: "locked", vinMasked: "XTA2109********99" };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/report`);
+
+    expect(response.status).toBe(403);
+    expect(accessService.reportCalls).toEqual([
+      {
+        vin: VALID_VIN,
+        userId: "user-1",
+        guestSessionId: null
+      }
+    ]);
+    expect(dependencies.reportCalls).toEqual([]);
+  });
+
+  it("commits unlock by VIN with an idempotency key", async () => {
+    const accessService = new FakeAccessService();
+    accessService.commitResult = {
+      status: "granted",
+      method: "subscription_limit",
+      vehicleId: "vehicle-1",
+      vin: VALID_VIN,
+      entitlements: {
+        plan: { code: "pro", name: "Pro" },
+        remainingReports: 11,
+        points: 3
+      }
+    };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/unlock`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: "unlock:user-1:vehicle-1" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      access: {
+        status: "granted",
+        method: "subscription_limit",
+        vehicleId: "vehicle-1",
+        vin: VALID_VIN
+      },
+      entitlements: {
+        plan: { code: "pro", name: "Pro" },
+        remainingReports: 11,
+        points: 3
+      }
+    });
+    expect(accessService.unlockCalls).toEqual([
+      {
+        vehicle: { kind: "vin", vin: VALID_VIN },
+        userId: "user-1",
+        guestSessionId: null,
+        idempotencyKey: "unlock:user-1:vehicle-1"
+      }
+    ]);
+    expect(dependencies.reportCalls).toEqual([]);
+  });
+
+  it("returns auth_required for guest unlock commit", async () => {
+    const accessService = new FakeAccessService();
+    accessService.commitResult = {
+      status: "auth_required",
+      vinMasked: "XTA2109********99",
+      options: ["telegram", "max", "phone"],
+      message: "Войдите, чтобы закрепить доступ к отчету.",
+      warning:
+        "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+    };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, guestIdentity());
+
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/unlock`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: "unlock:guest" })
+    });
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "auth_required",
+        message: "Войдите, чтобы открыть полный отчет.",
+        unlock: authRequiredPreview()
+      }
+    });
+  });
+
+  it("unlocks by vehicleId without returning full VIN", async () => {
+    const accessService = new FakeAccessService();
+    accessService.previewResult = {
+      status: "ready",
+      vehicleId: "vehicle-1",
+      vinMasked: "XTA2109********99",
+      spendOrder: "point",
+      willSpendSubscriptionReport: false,
+      willSpendPoints: true,
+      pointsBalanceAfter: 0,
+      remainingReportsAfter: 0,
+      warning:
+        "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+    };
+    accessService.commitResult = {
+      status: "granted",
+      method: "point",
+      vehicleId: "vehicle-1",
+      vin: VALID_VIN,
+      entitlements: {
+        plan: null,
+        remainingReports: 0,
+        points: 0
+      }
+    };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const preview = await routes.request("/api/vehicles/by-id/vehicle-1/unlock-intent", {
+      method: "POST"
+    });
+    const commit = await routes.request("/api/vehicles/by-id/vehicle-1/unlock", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: "unlock:user-1:vehicle-1" })
+    });
+
+    expect(preview.status).toBe(200);
+    expect(JSON.stringify(await preview.json())).not.toContain(VALID_VIN);
+    expect(commit.status).toBe(200);
+    const body = await commit.json();
+    expect(body).toEqual({
+      access: {
+        status: "granted",
+        method: "point",
+        vehicleId: "vehicle-1",
+        vinMasked: "XTA2109********99"
+      },
+      entitlements: {
+        plan: null,
+        remainingReports: 0,
+        points: 0
+      }
+    });
+    expect(JSON.stringify(body)).not.toContain(VALID_VIN);
+    expect(accessService.unlockCalls[0]?.vehicle).toEqual({
+      kind: "vehicle_id",
+      vehicleId: "vehicle-1"
+    });
   });
 
   it("rejects invalid VIN before repository lookup", async () => {
     const dependencies = createDependencies();
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies);
 
-    const response = await routes.request("/not-a-vin/preview");
+    const response = await routes.request("/api/vehicles/not-a-vin/preview");
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
@@ -131,9 +316,9 @@ describe("vehicle routes", () => {
     const dependencies = createDependencies({
       findPreviewByVin: async () => null
     });
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies);
 
-    const response = await routes.request(`/${VALID_VIN}/preview`);
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/preview`);
 
     expect(response.status).toBe(404);
     expect(await response.json()).toEqual({
@@ -148,17 +333,17 @@ describe("vehicle routes", () => {
     const dependencies = createDependencies({
       accessService: {
         async canViewFullReport() {
-          return { status: "granted", method: "test_override" };
+          return { status: "granted", method: "test_override", vehicleId: "vehicle-1" };
         }
-      },
+      } as unknown as ReportAccessService,
       findFullReportByVin: async () => ({
         ...fullReportReadModel(),
         sourceKind: "Avito"
       }) as VehicleFullReportReadModel
     });
-    const routes = createVehicleRoutes(dependencies);
+    const routes = createTestApp(dependencies, userIdentity());
 
-    const response = await routes.request(`/${VALID_VIN}/report`);
+    const response = await routes.request(`/api/vehicles/${VALID_VIN}/report`);
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({
@@ -179,7 +364,7 @@ function createDependencies(
   return {
     previewCalls,
     reportCalls,
-    accessService: overrides.accessService ?? createLockedReportAccessService(),
+    accessService: overrides.accessService ?? (new FakeAccessService() as unknown as ReportAccessService),
     findPreviewByVin:
       overrides.findPreviewByVin ??
       (async (vin) => {
@@ -193,6 +378,109 @@ function createDependencies(
         return fullReportReadModel();
       })
   };
+}
+
+function createTestApp(
+  dependencies: VehicleRoutesDependencies,
+  identity: RequestIdentity = guestIdentity()
+) {
+  const app = new Hono<{
+    Variables: {
+      requestIdentity: RequestIdentity;
+    };
+  }>();
+  app.use("*", async (context, next) => {
+    context.set(REQUEST_IDENTITY_KEY, identity);
+    await next();
+  });
+  app.route("/api/vehicles", createVehicleRoutes(dependencies));
+  return app;
+}
+
+function guestIdentity(): RequestIdentity {
+  return {
+    kind: "guest",
+    guestSessionId: "guest-1",
+    expiresAt: new Date("2026-05-21T10:00:00.000Z")
+  };
+}
+
+function userIdentity(): RequestIdentity {
+  return {
+    kind: "user",
+    userId: "user-1"
+  };
+}
+
+function authRequiredPreview(): UnlockPreviewDecision {
+  return {
+    status: "auth_required",
+    vinMasked: "XTA2109********99",
+    options: ["telegram", "max", "phone"],
+    message: "Войдите, чтобы закрепить доступ к отчету.",
+    warning:
+      "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+  };
+}
+
+class FakeAccessService {
+  previewCalls: Array<{
+    vehicle: { kind: "vin"; vin: string } | { kind: "vehicle_id"; vehicleId: string };
+    userId: string | null;
+    guestSessionId: string | null;
+  }> = [];
+  unlockCalls: Array<{
+    vehicle: { kind: "vin"; vin: string } | { kind: "vehicle_id"; vehicleId: string };
+    userId: string | null;
+    guestSessionId: string | null;
+    idempotencyKey: string;
+  }> = [];
+  reportCalls: Array<{ vin: string; userId: string | null; guestSessionId: string | null }> = [];
+  previewResult: UnlockPreviewDecision = authRequiredPreview();
+  commitResult: UnlockCommitDecision = {
+    status: "auth_required",
+    vinMasked: "XTA2109********99",
+    options: ["telegram", "max", "phone"],
+    message: "Войдите, чтобы закрепить доступ к отчету.",
+    warning:
+      "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+  };
+  reportResult: ReportAccessDecision = {
+    status: "auth_required",
+    vinMasked: "XTA2109********99",
+    options: ["telegram", "max", "phone"],
+    message: "Войдите, чтобы закрепить доступ к отчету.",
+    warning:
+      "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+  };
+
+  async previewUnlock(input: {
+    vehicle: { kind: "vin"; vin: string } | { kind: "vehicle_id"; vehicleId: string };
+    userId: string | null;
+    guestSessionId: string | null;
+  }) {
+    this.previewCalls.push(input);
+    return this.previewResult;
+  }
+
+  async unlock(input: {
+    vehicle: { kind: "vin"; vin: string } | { kind: "vehicle_id"; vehicleId: string };
+    userId: string | null;
+    guestSessionId: string | null;
+    idempotencyKey: string;
+  }) {
+    this.unlockCalls.push(input);
+    return this.commitResult;
+  }
+
+  async canViewFullReport(input: {
+    vin: string;
+    userId: string | null;
+    guestSessionId: string | null;
+  }) {
+    this.reportCalls.push(input);
+    return this.reportResult;
+  }
 }
 
 function previewReadModel(): VehiclePreviewReadModel {
