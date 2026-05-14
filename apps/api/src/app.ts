@@ -1,11 +1,18 @@
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
+import { createRequestContextMiddleware } from "./modules/context/request-context";
+import { DrizzleGuestSessionRepository } from "./modules/guest/drizzle-guest-session-repository";
+import { GuestSessionService } from "./modules/guest/guest-session-service";
 import { healthRoutes } from "./modules/health/routes";
 import { searchRoutes } from "./modules/search/routes";
 import { uploadRoutes } from "./modules/uploads/routes";
 import { vehicleRoutes } from "./modules/vehicles/routes";
 
-export function createApp() {
+export type CreateAppOptions = {
+  requestContextMiddleware?: MiddlewareHandler | null;
+};
+
+export function createApp(options: CreateAppOptions = {}) {
   const app = new Hono();
 
   app.use(
@@ -16,6 +23,17 @@ export function createApp() {
       allowMethods: ["GET", "POST", "OPTIONS"]
     })
   );
+
+  const requestContextMiddleware =
+    options.requestContextMiddleware === undefined
+      ? createRequestContextMiddleware({
+          guestSessionService: new GuestSessionService(new DrizzleGuestSessionRepository())
+        })
+      : options.requestContextMiddleware;
+
+  if (requestContextMiddleware !== null) {
+    app.use("/api/*", requestContextMiddleware);
+  }
 
   app.route("/health", healthRoutes);
   app.route("/api/search", searchRoutes);

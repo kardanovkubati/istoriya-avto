@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import app from "./app";
+import type { MiddlewareHandler } from "hono";
+import { createApp } from "./app";
+
+const app = createApp({ requestContextMiddleware: null });
 
 describe("api app", () => {
   it("returns health status", async () => {
@@ -106,6 +109,31 @@ describe("api app", () => {
 
       expect(response.headers.get("access-control-allow-origin")).toBe(origin);
     }
+  });
+
+  it("runs request context middleware on api routes but not health", async () => {
+    const middlewarePaths: string[] = [];
+    const requestContextMiddleware: MiddlewareHandler = async (context, next) => {
+      middlewarePaths.push(context.req.path);
+      await next();
+    };
+    const app = createApp({ requestContextMiddleware });
+
+    const healthResponse = await app.request("/health");
+
+    expect(healthResponse.status).toBe(200);
+    expect(middlewarePaths).toEqual([]);
+
+    const apiResponse = await app.request("/api/search/detect", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ query: "А123ВС777" })
+    });
+
+    expect(apiResponse.status).toBe(200);
+    expect(middlewarePaths).toEqual(["/api/search/detect"]);
   });
 
   it("loads test-safe environment defaults", async () => {
