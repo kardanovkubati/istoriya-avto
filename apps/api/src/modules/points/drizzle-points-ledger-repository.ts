@@ -1,4 +1,4 @@
-import { and, eq, gt, lt, sql } from "drizzle-orm";
+import { and, eq, gt, gte, lt, sql } from "drizzle-orm";
 import type { Database } from "../../db/client";
 import {
   pointLedgerEntries,
@@ -8,12 +8,19 @@ import {
 import type {
   PointsLedgerDeniedReason,
   PointsLedgerEntry,
+  PointsLedgerIdempotencyFingerprint,
   PointsLedgerMutationResult,
   PointsLedgerRepository,
   PointsLedgerRepositoryAdjustInput,
   PointsLedgerRepositoryGrantInput,
   PointsLedgerRepositorySpendInput,
   PointsLedgerResultReason
+} from "./points-ledger-repository";
+import {
+  adjustPointsIdempotencyFingerprint,
+  grantReportPointIdempotencyFingerprint,
+  resolveIdempotentReplay,
+  spendPointForAccessIdempotencyFingerprint
 } from "./points-ledger-repository";
 
 type DbTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
@@ -32,8 +39,9 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
           .where(eq(pointLedgerEntries.idempotencyKey, input.idempotencyKey))
           .limit(1);
         if (replay[0]) {
-          return this.idempotentReplay(
+          return resolveIdempotentReplay(
             mapEntry(replay[0]),
+            grantReportPointIdempotencyFingerprint(input),
             await this.getBalanceInTx(tx, input.userId)
           );
         }
@@ -104,8 +112,9 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
           .where(eq(pointLedgerEntries.idempotencyKey, input.idempotencyKey))
           .limit(1);
         if (replay[0]) {
-          return this.idempotentReplay(
+          return resolveIdempotentReplay(
             mapEntry(replay[0]),
+            spendPointForAccessIdempotencyFingerprint(input),
             await this.getBalanceInTx(tx, input.userId)
           );
         }
@@ -147,7 +156,11 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
-        return await this.classifyIdempotentReplay(input.idempotencyKey, input.userId);
+        return await this.classifyIdempotentReplay(
+          input.idempotencyKey,
+          spendPointForAccessIdempotencyFingerprint(input),
+          input.userId
+        );
       }
       throw error;
     }
@@ -162,13 +175,22 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
           .where(eq(pointLedgerEntries.idempotencyKey, input.idempotencyKey))
           .limit(1);
         if (replay[0]) {
-          return this.idempotentReplay(
+          return resolveIdempotentReplay(
             mapEntry(replay[0]),
+            adjustPointsIdempotencyFingerprint(input),
             await this.getBalanceInTx(tx, input.userId)
           );
         }
 
         const now = new Date();
+        const balances = await this.updateUserBalanceForAdjustmentInTx(tx, input, now);
+        if (!balances[0]) {
+          return this.denied(
+            "adjustment_would_make_balance_negative",
+            await this.getBalanceInTx(tx, input.userId)
+          );
+        }
+
         const inserted = await tx
           .insert(pointLedgerEntries)
           .values({
@@ -184,16 +206,19 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
             updatedAt: now
           })
           .returning();
-        const balanceAfter = await this.incrementUserBalanceInTx(tx, input.userId, input.delta, now);
 
         return this.applied(
           mapEntry(requireReturnedRow(inserted, "point ledger adjustment insert")),
-          balanceAfter
+          balances[0].pointsBalance
         );
       });
     } catch (error) {
       if (isUniqueViolation(error)) {
-        return await this.classifyIdempotentReplay(input.idempotencyKey, input.userId);
+        return await this.classifyIdempotentReplay(
+          input.idempotencyKey,
+          adjustPointsIdempotencyFingerprint(input),
+          input.userId
+        );
       }
       throw error;
     }
@@ -268,7 +293,11 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
   ): Promise<PointsLedgerMutationResult> {
     const replay = await this.findEntryByIdempotencyKey(input.idempotencyKey);
     if (replay) {
-      return this.idempotentReplay(replay, await this.getBalance(input.userId));
+      return resolveIdempotentReplay(
+        replay,
+        grantReportPointIdempotencyFingerprint(input),
+        await this.getBalance(input.userId)
+      );
     }
 
     const conflict = await this.db.transaction(async (tx) => {
@@ -282,11 +311,12 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
 
   private async classifyIdempotentReplay(
     idempotencyKey: string,
+    fingerprint: PointsLedgerIdempotencyFingerprint,
     userId: string
   ): Promise<PointsLedgerMutationResult> {
     const replay = await this.findEntryByIdempotencyKey(idempotencyKey);
     if (replay) {
-      return this.idempotentReplay(replay, await this.getBalance(userId));
+      return resolveIdempotentReplay(replay, fingerprint, await this.getBalance(userId));
     }
     throw new Error("Unique conflict did not leave an idempotent ledger entry to replay.");
   }
@@ -322,6 +352,25 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
     return balances[0].pointsBalance;
   }
 
+  private async updateUserBalanceForAdjustmentInTx(
+    tx: DbTransaction,
+    input: PointsLedgerRepositoryAdjustInput,
+    now: Date
+  ): Promise<Array<{ pointsBalance: number }>> {
+    return await tx
+      .update(users)
+      .set({
+        pointsBalance: sql`${users.pointsBalance} + ${input.delta}`,
+        updatedAt: now
+      })
+      .where(
+        input.delta < 0
+          ? and(eq(users.id, input.userId), gte(users.pointsBalance, Math.abs(input.delta)))
+          : eq(users.id, input.userId)
+      )
+      .returning({ pointsBalance: users.pointsBalance });
+  }
+
   private async getBalanceInTx(tx: DbTransaction, userId: string): Promise<number | null> {
     const rows = await tx
       .select({ pointsBalance: users.pointsBalance })
@@ -338,19 +387,6 @@ export class DrizzlePointsLedgerRepository implements PointsLedgerRepository {
       ledgerEntryId: entry.id,
       balanceAfter,
       reason: entry.reason
-    };
-  }
-
-  private idempotentReplay(
-    entry: PointsLedgerEntry,
-    balanceAfter: number | null
-  ): PointsLedgerMutationResult {
-    return {
-      status: "idempotent_replay",
-      entry,
-      ledgerEntryId: entry.id,
-      balanceAfter,
-      reason: "idempotent_replay"
     };
   }
 

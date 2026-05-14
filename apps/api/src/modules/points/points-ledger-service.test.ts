@@ -7,6 +7,12 @@ import type {
   PointsLedgerRepositoryGrantInput,
   PointsLedgerRepositorySpendInput
 } from "./points-ledger-repository";
+import {
+  adjustPointsIdempotencyFingerprint,
+  grantReportPointIdempotencyFingerprint,
+  resolveIdempotentReplay,
+  spendPointForAccessIdempotencyFingerprint
+} from "./points-ledger-repository";
 import { PointsLedgerService } from "./points-ledger-service";
 
 const USER_ID = "user-1";
@@ -77,6 +83,38 @@ describe("PointsLedgerService", () => {
     expect(replay.balanceAfter).toBe(1);
     expect(repository.getUserBalance(USER_ID)).toBe(1);
     expect(repository.getFingerprintAutomaticGrantCount(REPORT_FINGERPRINT_ID)).toBe(1);
+    expect(repository.entries).toHaveLength(1);
+  });
+
+  it("denies a reused grant idempotency key when the payload differs", async () => {
+    await service.grantReportPoint({
+      userId: USER_ID,
+      vehicleId: VEHICLE_ID,
+      reportUploadId: REPORT_UPLOAD_ID,
+      reportFingerprintId: REPORT_FINGERPRINT_ID,
+      idempotencyKey: "grant:1",
+      note: null
+    });
+    repository.setUserBalance("user-2", 0);
+
+    const conflict = await service.grantReportPoint({
+      userId: "user-2",
+      vehicleId: "vehicle-2",
+      reportUploadId: REPORT_UPLOAD_ID_2,
+      reportFingerprintId: "fingerprint-2",
+      idempotencyKey: "grant:1",
+      note: null
+    });
+
+    expect(conflict).toMatchObject({
+      status: "denied",
+      entry: null,
+      ledgerEntryId: null,
+      balanceAfter: 0,
+      reason: "idempotency_key_conflict"
+    });
+    expect(repository.getUserBalance(USER_ID)).toBe(1);
+    expect(repository.getUserBalance("user-2")).toBe(0);
     expect(repository.entries).toHaveLength(1);
   });
 
@@ -224,6 +262,35 @@ describe("PointsLedgerService", () => {
     expect(repository.entries).toHaveLength(1);
   });
 
+  it("denies a reused spend idempotency key when the payload differs", async () => {
+    repository.setUserBalance(USER_ID, 1);
+    repository.setUserBalance("user-2", 1);
+    await service.spendPointForAccess({
+      userId: USER_ID,
+      vehicleId: VEHICLE_ID,
+      idempotencyKey: "spend:1",
+      note: null
+    });
+
+    const conflict = await service.spendPointForAccess({
+      userId: "user-2",
+      vehicleId: "vehicle-2",
+      idempotencyKey: "spend:1",
+      note: null
+    });
+
+    expect(conflict).toMatchObject({
+      status: "denied",
+      entry: null,
+      ledgerEntryId: null,
+      balanceAfter: 1,
+      reason: "idempotency_key_conflict"
+    });
+    expect(repository.getUserBalance(USER_ID)).toBe(0);
+    expect(repository.getUserBalance("user-2")).toBe(1);
+    expect(repository.entries).toHaveLength(1);
+  });
+
   it("adjustPoints supports positive admin_adjustment and negative fraud_reversal with required nonblank note and idempotent replay", async () => {
     const adminAdjustment = await service.adjustPoints({
       userId: USER_ID,
@@ -285,6 +352,56 @@ describe("PointsLedgerService", () => {
     expect(repository.getUserBalance(USER_ID)).toBe(3);
     expect(repository.entries).toHaveLength(2);
   });
+
+  it("denies a reused adjustment idempotency key when the payload differs", async () => {
+    await service.adjustPoints({
+      userId: USER_ID,
+      delta: 5,
+      reason: "admin_adjustment",
+      idempotencyKey: "adjust:1",
+      note: "manual compensation"
+    });
+
+    const conflict = await service.adjustPoints({
+      userId: USER_ID,
+      delta: 5,
+      reason: "admin_adjustment",
+      idempotencyKey: "adjust:1",
+      note: "different note"
+    });
+
+    expect(conflict).toMatchObject({
+      status: "denied",
+      entry: null,
+      ledgerEntryId: null,
+      balanceAfter: 5,
+      reason: "idempotency_key_conflict"
+    });
+    expect(repository.getUserBalance(USER_ID)).toBe(5);
+    expect(repository.entries).toHaveLength(1);
+  });
+
+  it("denies negative adjustments that would make the balance negative", async () => {
+    repository.setUserBalance(USER_ID, 1);
+
+    const denied = await service.adjustPoints({
+      userId: USER_ID,
+      delta: -2,
+      reason: "fraud_reversal",
+      idempotencyKey: "adjust:negative",
+      note: "reversal exceeds balance"
+    });
+
+    expect(denied).toMatchObject({
+      status: "denied",
+      entry: null,
+      ledgerEntryId: null,
+      balanceAfter: 1,
+      reason: "adjustment_would_make_balance_negative"
+    });
+    expect(repository.getUserBalance(USER_ID)).toBe(1);
+    expect(repository.entries).toHaveLength(0);
+  });
 });
 
 class FakePointsLedgerRepository implements PointsLedgerRepository {
@@ -314,7 +431,11 @@ class FakePointsLedgerRepository implements PointsLedgerRepository {
   ): Promise<PointsLedgerMutationResult> {
     const replay = this.findByIdempotencyKey(input.idempotencyKey);
     if (replay) {
-      return this.idempotentReplay(replay);
+      return resolveIdempotentReplay(
+        replay,
+        grantReportPointIdempotencyFingerprint(input),
+        this.getUserBalance(input.userId)
+      );
     }
 
     if (this.hasGrant((entry) => entry.userId === input.userId && entry.vehicleId === input.vehicleId)) {
@@ -366,7 +487,11 @@ class FakePointsLedgerRepository implements PointsLedgerRepository {
   ): Promise<PointsLedgerMutationResult> {
     const replay = this.findByIdempotencyKey(input.idempotencyKey);
     if (replay) {
-      return this.idempotentReplay(replay);
+      return resolveIdempotentReplay(
+        replay,
+        spendPointForAccessIdempotencyFingerprint(input),
+        this.getUserBalance(input.userId)
+      );
     }
 
     if (this.getUserBalance(input.userId) <= 0) {
@@ -392,7 +517,15 @@ class FakePointsLedgerRepository implements PointsLedgerRepository {
   ): Promise<PointsLedgerMutationResult> {
     const replay = this.findByIdempotencyKey(input.idempotencyKey);
     if (replay) {
-      return this.idempotentReplay(replay);
+      return resolveIdempotentReplay(
+        replay,
+        adjustPointsIdempotencyFingerprint(input),
+        this.getUserBalance(input.userId)
+      );
+    }
+
+    if (input.delta < 0 && this.getUserBalance(input.userId) + input.delta < 0) {
+      return this.denied(input.userId, "adjustment_would_make_balance_negative");
     }
 
     const entry = this.createEntry({
@@ -446,16 +579,6 @@ class FakePointsLedgerRepository implements PointsLedgerRepository {
       ledgerEntryId: entry.id,
       balanceAfter: this.getUserBalance(entry.userId),
       reason: entry.reason
-    };
-  }
-
-  private idempotentReplay(entry: PointsLedgerEntry): PointsLedgerMutationResult {
-    return {
-      status: "idempotent_replay",
-      entry,
-      ledgerEntryId: entry.id,
-      balanceAfter: this.getUserBalance(entry.userId),
-      reason: "idempotent_replay"
     };
   }
 
