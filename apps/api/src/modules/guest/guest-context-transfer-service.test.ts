@@ -188,7 +188,7 @@ describe("GuestContextTransferService", () => {
     expect(result).toEqual({
       pointGrants: 0,
       reportUploads: 0,
-      selectedUnlockVin: "JTDBR32E720123456"
+      selectedUnlockVin: null
     });
     expect(repository.assignedUploads).toEqual([]);
     expect(repository.markedEvents).toEqual([]);

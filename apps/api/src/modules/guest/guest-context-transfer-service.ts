@@ -38,9 +38,6 @@ export class GuestContextTransferService {
     guestSessionId: string;
     userId: string;
   }): Promise<GuestContextTransferResult> {
-    const selectedUnlockVin = await this.options.repository.findLatestSelectedUnlockVin(
-      input.guestSessionId
-    );
     const claimed = await this.options.repository.claimGuestSession({
       guestSessionId: input.guestSessionId,
       userId: input.userId,
@@ -51,10 +48,13 @@ export class GuestContextTransferService {
       return {
         pointGrants: 0,
         reportUploads: 0,
-        selectedUnlockVin
+        selectedUnlockVin: null
       };
     }
 
+    const selectedUnlockVin = await this.options.repository.findLatestSelectedUnlockVin(
+      input.guestSessionId
+    );
     const reportUploads = await this.options.repository.assignGuestUploadsToUser(input);
     const grants = await this.options.repository.findUntransferredGuestPointGrants(
       input.guestSessionId
