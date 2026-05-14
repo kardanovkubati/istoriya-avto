@@ -10,16 +10,18 @@ import { uploadRoutes } from "./modules/uploads/routes";
 import { vehicleRoutes } from "./modules/vehicles/routes";
 
 export type CreateAppOptions = {
+  publicWebUrl?: string;
   requestContextMiddleware?: MiddlewareHandler | null;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
   const app = new Hono();
+  const publicWebOrigin = new URL(options.publicWebUrl ?? env.PUBLIC_WEB_URL).origin;
 
   app.use(
     "*",
     cors({
-      origin: [env.PUBLIC_WEB_URL, "http://localhost:5173", "http://127.0.0.1:5173"],
+      origin: [publicWebOrigin, "http://localhost:5173", "http://127.0.0.1:5173"],
       allowHeaders: ["content-type"],
       allowMethods: ["GET", "POST", "OPTIONS"],
       credentials: true

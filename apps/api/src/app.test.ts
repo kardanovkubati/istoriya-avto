@@ -159,6 +159,25 @@ describe("api app", () => {
     }
   });
 
+  it("allows configured public web URL with trailing slash to match browser origin", async () => {
+    const app = createApp({
+      requestContextMiddleware: null,
+      publicWebUrl: "https://web.istoriya-avto.example/"
+    });
+
+    const origin = "https://web.istoriya-avto.example";
+    const preflightResponse = await app.request("/api/search/detect", {
+      method: "OPTIONS",
+      headers: {
+        origin,
+        "access-control-request-method": "POST"
+      }
+    });
+
+    expect(preflightResponse.headers.get("access-control-allow-origin")).toBe(origin);
+    expect(preflightResponse.headers.get("access-control-allow-credentials")).toBe("true");
+  });
+
   it("does not run request context middleware for CORS preflight", async () => {
     const middlewarePaths: string[] = [];
     const requestContextMiddleware: MiddlewareHandler = async (context, next) => {
