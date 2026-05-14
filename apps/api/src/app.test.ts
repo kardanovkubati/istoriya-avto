@@ -2,6 +2,10 @@ import { describe, expect, it } from "bun:test";
 import type { MiddlewareHandler } from "hono";
 import { createApp } from "./app";
 import { env } from "./env";
+import { createAuthRoutes } from "./modules/auth/auth-routes";
+import type { AccountService, LinkIdentityResult, LoginResult } from "./modules/auth/account-service";
+import type { AuthProvider } from "./modules/auth/identity";
+import { REQUEST_IDENTITY_KEY } from "./modules/context/request-context";
 
 const app = createApp({ requestContextMiddleware: null });
 
@@ -94,6 +98,46 @@ describe("api app", () => {
       error: {
         code: "invalid_vin",
         message: "Передайте корректный VIN."
+      }
+    });
+  });
+
+  it("exposes auth login route", async () => {
+    const requestContextMiddleware: MiddlewareHandler = async (context, next) => {
+      context.set(REQUEST_IDENTITY_KEY, {
+        kind: "guest",
+        guestSessionId: "guest-1",
+        expiresAt: new Date("2026-05-21T10:00:00.000Z")
+      });
+      await next();
+    };
+    const app = createApp({
+      requestContextMiddleware,
+      authRoutes: createAuthRoutes({
+        accountService: new AppTestAccountService() as unknown as AccountService,
+        secureCookies: false
+      })
+    });
+
+    const response = await app.request("/api/auth/login", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ provider: "telegram", providerUserId: "12345" })
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      account: {
+        id: "user-1",
+        primaryContactProvider: "telegram",
+        identities: ["telegram"]
+      },
+      transferredGuestContext: {
+        pointGrants: 0,
+        reportUploads: 0,
+        selectedUnlockVin: null
       }
     });
   });
@@ -230,3 +274,38 @@ describe("api app", () => {
     expect(env.DATABASE_URL.startsWith("postgresql://")).toBe(true);
   });
 });
+
+class AppTestAccountService {
+  async loginOrCreate(input: {
+    provider: AuthProvider;
+    providerUserId: string;
+    displayName: string | null;
+    guestSessionId: string | null;
+  }): Promise<LoginResult & { sessionToken: string; sessionExpiresAt: Date }> {
+    expect(input).toEqual({
+      provider: "telegram",
+      providerUserId: "12345",
+      displayName: null,
+      guestSessionId: "guest-1"
+    });
+
+    return {
+      account: {
+        id: "user-1",
+        primaryContactProvider: "telegram",
+        identities: ["telegram"]
+      },
+      transferredGuestContext: {
+        pointGrants: 0,
+        reportUploads: 0,
+        selectedUnlockVin: null
+      },
+      sessionToken: "token",
+      sessionExpiresAt: new Date("2026-06-13T10:00:00.000Z")
+    };
+  }
+
+  async linkIdentity(): Promise<LinkIdentityResult> {
+    throw new Error("not_used");
+  }
+}

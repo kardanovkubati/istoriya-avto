@@ -1,6 +1,10 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { env } from "./env";
+import { AccountService } from "./modules/auth/account-service";
+import { createAuthRoutes } from "./modules/auth/auth-routes";
+import { DrizzleAccountRepository } from "./modules/auth/drizzle-account-repository";
+import { UserSessionService } from "./modules/auth/user-session-service";
 import { createRequestContextMiddleware } from "./modules/context/request-context";
 import { DrizzleGuestSessionRepository } from "./modules/guest/drizzle-guest-session-repository";
 import { GuestSessionService } from "./modules/guest/guest-session-service";
@@ -12,6 +16,7 @@ import { vehicleRoutes } from "./modules/vehicles/routes";
 export type CreateAppOptions = {
   publicWebUrl?: string;
   requestContextMiddleware?: MiddlewareHandler | null;
+  authRoutes?: Hono;
 };
 
 export function createApp(options: CreateAppOptions = {}) {
@@ -28,11 +33,15 @@ export function createApp(options: CreateAppOptions = {}) {
     })
   );
 
+  const secureCookies = env.PUBLIC_API_URL.startsWith("https://");
+  const accountRepository = new DrizzleAccountRepository();
+  const userSessionService = new UserSessionService(accountRepository);
   const requestContextMiddleware =
     options.requestContextMiddleware === undefined
       ? createRequestContextMiddleware({
           guestSessionService: new GuestSessionService(new DrizzleGuestSessionRepository()),
-          secureCookies: env.PUBLIC_API_URL.startsWith("https://")
+          userSessionResolver: userSessionService,
+          secureCookies
         })
       : options.requestContextMiddleware;
 
@@ -41,6 +50,17 @@ export function createApp(options: CreateAppOptions = {}) {
   }
 
   app.route("/health", healthRoutes);
+  app.route(
+    "/api/auth",
+    options.authRoutes ??
+      createAuthRoutes({
+        accountService: new AccountService({
+          repository: accountRepository,
+          userSessionService
+        }),
+        secureCookies
+      })
+  );
   app.route("/api/search", searchRoutes);
   app.route("/api/uploads", uploadRoutes);
   app.route("/api/vehicles", vehicleRoutes);
