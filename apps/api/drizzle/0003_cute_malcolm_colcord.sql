@@ -34,7 +34,9 @@ CREATE TABLE "user_sessions" (
 );
 --> statement-breakpoint
 ALTER TABLE "point_ledger_entries" ADD COLUMN "report_fingerprint_id" uuid;--> statement-breakpoint
-ALTER TABLE "point_ledger_entries" ADD COLUMN "idempotency_key" text NOT NULL;--> statement-breakpoint
+ALTER TABLE "point_ledger_entries" ADD COLUMN "idempotency_key" text;--> statement-breakpoint
+UPDATE "point_ledger_entries" SET "idempotency_key" = 'legacy:' || "id"::text WHERE "idempotency_key" IS NULL;--> statement-breakpoint
+ALTER TABLE "point_ledger_entries" ALTER COLUMN "idempotency_key" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "guest_events" ADD CONSTRAINT "guest_events_guest_session_id_guest_sessions_id_fk" FOREIGN KEY ("guest_session_id") REFERENCES "public"."guest_sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "guest_events" ADD CONSTRAINT "guest_events_transferred_to_user_id_users_id_fk" FOREIGN KEY ("transferred_to_user_id") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "guest_point_grants" ADD CONSTRAINT "guest_point_grants_guest_session_id_guest_sessions_id_fk" FOREIGN KEY ("guest_session_id") REFERENCES "public"."guest_sessions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
