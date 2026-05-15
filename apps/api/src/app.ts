@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { db } from "./db/client";
 import { env } from "./env";
 import { DrizzleReportAccessRepository } from "./modules/access/drizzle-report-access-repository";
+import { ReportAccessService } from "./modules/access/report-access-service";
 import { AccountService, type AccountTransferResult } from "./modules/auth/account-service";
 import { createAuthRoutes } from "./modules/auth/auth-routes";
 import { DrizzleAccountRepository } from "./modules/auth/drizzle-account-repository";
@@ -15,8 +16,12 @@ import { GuestSessionService } from "./modules/guest/guest-session-service";
 import { healthRoutes } from "./modules/health/routes";
 import { DrizzlePointsLedgerRepository } from "./modules/points/drizzle-points-ledger-repository";
 import { PointsLedgerService } from "./modules/points/points-ledger-service";
+import { DrizzleShareLinkRepository } from "./modules/reports/drizzle-share-link-repository";
+import { createReportShareRoutes } from "./modules/reports/share-routes";
+import { ShareLinkService } from "./modules/reports/share-link-service";
 import { searchRoutes } from "./modules/search/routes";
 import { uploadRoutes } from "./modules/uploads/routes";
+import { DrizzleVehicleReportRepository } from "./modules/vehicles/drizzle-vehicle-report-repository";
 import { vehicleRoutes } from "./modules/vehicles/routes";
 
 export type CreateAppOptions = {
@@ -52,6 +57,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const pointsLedgerService = new PointsLedgerService({
     repository: new DrizzlePointsLedgerRepository(db)
   });
+  const vehicleReportRepository = new DrizzleVehicleReportRepository();
   const guestContextTransferService = new GuestContextTransferService({
     repository: guestSessionRepository,
     ledger: pointsLedgerService
@@ -94,6 +100,21 @@ export function createApp(options: CreateAppOptions = {}) {
   );
   app.route("/api/search", searchRoutes);
   app.route("/api/uploads", uploadRoutes);
+  app.route(
+    "/api",
+    createReportShareRoutes({
+      accessService: new ReportAccessService({
+        repository: reportAccessRepository,
+        pointsLedgerService
+      }),
+      shareService: new ShareLinkService({
+        repository: new DrizzleShareLinkRepository(db)
+      }),
+      publicWebUrl: options.publicWebUrl ?? env.PUBLIC_WEB_URL,
+      findFullReportByVehicleId: (vehicleId) =>
+        vehicleReportRepository.findFullReportByVehicleId(vehicleId)
+    })
+  );
   app.route("/api/vehicles", vehicleRoutes);
 
   app.notFound((context) => {
