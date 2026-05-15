@@ -71,8 +71,58 @@ describe("vehicle routes", () => {
     const response = await routes.request(`/api/vehicles/${VALID_VIN}/report`);
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ report: fullReportReadModel() });
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(await response.json()).toMatchObject({
+      report: fullReportReadModel(),
+      presentation: {
+        noindex: true,
+        actions: { canShare: true, canDownloadPdf: true }
+      }
+    });
     expect(dependencies.reportCalls).toEqual([VALID_VIN]);
+  });
+
+  it("returns full report by vehicleId only after access grant", async () => {
+    const accessService = new FakeAccessService();
+    accessService.reportByVehicleIdResult = {
+      status: "granted",
+      method: "test_override",
+      vehicleId: VALID_VEHICLE_ID
+    };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const response = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/report`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(await response.json()).toMatchObject({
+      report: { vehicleId: "vehicle-1", vin: VALID_VIN },
+      presentation: {
+        noindex: true,
+        actions: { canShare: true, canDownloadPdf: true }
+      }
+    });
+    expect(accessService.reportByVehicleIdCalls).toEqual([
+      {
+        vehicleId: VALID_VEHICLE_ID,
+        userId: "user-1",
+        guestSessionId: null
+      }
+    ]);
+    expect(dependencies.reportByVehicleIdCalls).toEqual([VALID_VEHICLE_ID]);
+  });
+
+  it("locks by-id full report before repository lookup", async () => {
+    const dependencies = createDependencies();
+    const routes = createTestApp(dependencies, guestIdentity());
+
+    const response = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/report`);
+
+    expect(response.status).toBe(401);
+    expect(dependencies.reportByVehicleIdCalls).toEqual([]);
   });
 
   it("returns full report by VIN without source brands", async () => {
@@ -489,13 +539,20 @@ describe("vehicle routes", () => {
 
 function createDependencies(
   overrides: Partial<VehicleRoutesDependencies> = {}
-): VehicleRoutesDependencies & { previewCalls: string[]; reportCalls: string[] } {
+): VehicleRoutesDependencies & {
+  previewCalls: string[];
+  reportCalls: string[];
+  reportByVehicleIdCalls: string[];
+  findFullReportByVehicleId(vehicleId: string): Promise<VehicleFullReportReadModel | null>;
+} {
   const previewCalls: string[] = [];
   const reportCalls: string[] = [];
+  const reportByVehicleIdCalls: string[] = [];
 
   return {
     previewCalls,
     reportCalls,
+    reportByVehicleIdCalls,
     accessService: overrides.accessService ?? (new FakeAccessService() as unknown as ReportAccessService),
     findPreviewByVin:
       overrides.findPreviewByVin ??
@@ -508,7 +565,11 @@ function createDependencies(
       (async (vin) => {
         reportCalls.push(vin);
         return fullReportReadModel();
-      })
+      }),
+    findFullReportByVehicleId: async (vehicleId) => {
+      reportByVehicleIdCalls.push(vehicleId);
+      return fullReportReadModel();
+    }
   };
 }
 
@@ -568,6 +629,11 @@ class FakeAccessService {
     idempotencyKey: string;
   }> = [];
   reportCalls: Array<{ vin: string; userId: string | null; guestSessionId: string | null }> = [];
+  reportByVehicleIdCalls: Array<{
+    vehicleId: string;
+    userId: string | null;
+    guestSessionId: string | null;
+  }> = [];
   previewResult: UnlockPreviewDecision = authRequiredPreview();
   commitResult: UnlockCommitDecision = {
     status: "auth_required",
@@ -578,6 +644,14 @@ class FakeAccessService {
       "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
   };
   reportResult: ReportAccessDecision = {
+    status: "auth_required",
+    vinMasked: "XTA2109********99",
+    options: ["telegram", "max", "phone"],
+    message: "Войдите, чтобы закрепить доступ к отчету.",
+    warning:
+      "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+  };
+  reportByVehicleIdResult: ReportAccessDecision = {
     status: "auth_required",
     vinMasked: "XTA2109********99",
     options: ["telegram", "max", "phone"],
@@ -612,6 +686,15 @@ class FakeAccessService {
   }) {
     this.reportCalls.push(input);
     return this.reportResult;
+  }
+
+  async canViewFullReportByVehicleId(input: {
+    vehicleId: string;
+    userId: string | null;
+    guestSessionId: string | null;
+  }) {
+    this.reportByVehicleIdCalls.push(input);
+    return this.reportByVehicleIdResult;
   }
 }
 

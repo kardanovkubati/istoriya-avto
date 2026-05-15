@@ -35,4 +35,5 @@ export interface VehicleReportRepository {
   saveReportSnapshot(input: SaveVehicleReportSnapshotInput): Promise<void>;
   findPreviewByVin(vin: string): Promise<VehiclePreviewReadModel | null>;
   findFullReportByVin(vin: string): Promise<VehicleFullReportReadModel | null>;
+  findFullReportByVehicleId(vehicleId: string): Promise<VehicleFullReportReadModel | null>;
 }

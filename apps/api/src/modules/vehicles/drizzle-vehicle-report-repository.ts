@@ -189,6 +189,18 @@ export class DrizzleVehicleReportRepository implements VehicleReportRepository {
 
     return (snapshot?.reportData as VehicleFullReportReadModel | undefined) ?? null;
   }
+
+  async findFullReportByVehicleId(vehicleId: string): Promise<VehicleFullReportReadModel | null> {
+    const [snapshot] = await db
+      .select({
+        reportData: vehicleReportSnapshots.reportData
+      })
+      .from(vehicleReportSnapshots)
+      .where(eq(vehicleReportSnapshots.vehicleId, vehicleId))
+      .limit(1);
+
+    return (snapshot?.reportData as VehicleFullReportReadModel | undefined) ?? null;
+  }
 }
 
 function parseDate(value: string | null): Date | null {

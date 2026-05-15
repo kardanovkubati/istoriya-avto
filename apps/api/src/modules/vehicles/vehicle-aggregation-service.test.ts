@@ -259,4 +259,8 @@ class FakeVehicleReportRepository implements VehicleReportRepository {
   async findFullReportByVin(): Promise<null> {
     return null;
   }
+
+  async findFullReportByVehicleId(): Promise<null> {
+    return null;
+  }
 }

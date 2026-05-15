@@ -243,6 +243,39 @@ export class ReportAccessService {
     };
   }
 
+  async canViewFullReportByVehicleId(input: {
+    vehicleId: string;
+    userId: string | null;
+    guestSessionId: string | null;
+  }): Promise<ReportAccessDecision> {
+    const vehicle = await this.options.repository.findVehicleById(input.vehicleId);
+    if (vehicle === null) {
+      return { status: "locked", vinMasked: "" };
+    }
+
+    if (input.userId === null) {
+      return this.authRequired(vehicle);
+    }
+
+    const access = await this.options.repository.findVehicleAccess({
+      userId: input.userId,
+      vehicleId: vehicle.id
+    });
+    if (access !== null) {
+      return {
+        status: "granted",
+        method: "already_opened",
+        vehicleId: vehicle.id
+      };
+    }
+
+    return {
+      status: "locked",
+      vehicleId: vehicle.id,
+      vinMasked: maskVin(vehicle.vin)
+    };
+  }
+
   private async resolveVehicle(input: UnlockVehicleInput): Promise<ReportAccessVehicle | null> {
     return input.kind === "vin"
       ? await this.options.repository.findVehicleByVin(input.vin)

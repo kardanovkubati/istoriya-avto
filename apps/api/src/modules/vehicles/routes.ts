@@ -7,6 +7,7 @@ import {
   type VehicleFullReportReadModel,
   type VehiclePreviewReadModel
 } from "./report-read-model";
+import { buildReportPresentation } from "../reports/report-presentation";
 import {
   type ReportAccessDecision,
   ReportAccessService,
@@ -30,6 +31,7 @@ export type VehicleRoutesDependencies = {
   accessService: ReportAccessService;
   findPreviewByVin(vin: string): Promise<VehiclePreviewReadModel | null>;
   findFullReportByVin(vin: string): Promise<VehicleFullReportReadModel | null>;
+  findFullReportByVehicleId(vehicleId: string): Promise<VehicleFullReportReadModel | null>;
 };
 
 export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Hono {
@@ -90,7 +92,7 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
 
     assertNoSourceBrandLeak(report);
 
-    return context.json({ report });
+    return fullReportResponse(context, report, "owner");
   });
 
   routes.post("/:vin/unlock-intent", async (context) => {
@@ -111,6 +113,32 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
     }
 
     return context.json({ unlock });
+  });
+
+  routes.get("/by-id/:vehicleId/report", async (context) => {
+    const vehicleId = parseVehicleId(context.req.param("vehicleId"));
+    if (vehicleId === null) {
+      return invalidVehicleId(context);
+    }
+
+    const identity = getRequestIdentity(context);
+    const access = await dependencies.accessService.canViewFullReportByVehicleId({
+      vehicleId,
+      userId: identity.kind === "user" ? identity.userId : null,
+      guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null
+    });
+    if (access.status !== "granted") {
+      return lockedReport(context, access);
+    }
+
+    const report = await dependencies.findFullReportByVehicleId(vehicleId);
+    if (report === null) {
+      return vehicleReportNotFound(context);
+    }
+
+    assertNoSourceBrandLeak(report);
+
+    return fullReportResponse(context, report, "owner");
   });
 
   routes.post("/:vin/unlock", async (context) => {
@@ -194,7 +222,9 @@ export const vehicleRoutes = createVehicleRoutes({
     guestUnlockIntentRecorder: guestSessionRepository
   }),
   findPreviewByVin: (vin) => vehicleReportRepository.findPreviewByVin(vin),
-  findFullReportByVin: (vin) => vehicleReportRepository.findFullReportByVin(vin)
+  findFullReportByVin: (vin) => vehicleReportRepository.findFullReportByVin(vin),
+  findFullReportByVehicleId: (vehicleId) =>
+    vehicleReportRepository.findFullReportByVehicleId(vehicleId)
 });
 
 function parseVin(value: string): string | null {
@@ -295,6 +325,18 @@ function lockedReport(
     },
     403
   );
+}
+
+function fullReportResponse(
+  context: Context,
+  report: VehicleFullReportReadModel,
+  mode: "owner" | "share"
+) {
+  context.header("X-Robots-Tag", "noindex, nofollow");
+  return context.json({
+    report,
+    presentation: buildReportPresentation({ report, mode })
+  });
 }
 
 function unlockCommitResponse(

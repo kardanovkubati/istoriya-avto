@@ -322,6 +322,45 @@ describe("ReportAccessService", () => {
     expect(points.spendCalls).toEqual([]);
   });
 
+  it("uses one access record to open a vehicleId forever without spending on later full report reads", async () => {
+    const repository = new FakeReportAccessRepository();
+    repository.accesses.push(access({ accessMethod: "subscription_limit" }));
+    const points = new FakePointsLedgerService();
+    const service = createService(repository, points);
+
+    await expect(
+      service.canViewFullReportByVehicleId({
+        vehicleId: "vehicle-1",
+        userId: "user-1",
+        guestSessionId: null
+      })
+    ).resolves.toEqual({
+      status: "granted",
+      method: "already_opened",
+      vehicleId: "vehicle-1"
+    });
+    expect(repository.decrementCalls).toEqual([]);
+    expect(points.spendCalls).toEqual([]);
+  });
+
+  it("requires auth before viewing a full report by vehicleId", async () => {
+    const repository = new FakeReportAccessRepository();
+    const service = createService(repository, new FakePointsLedgerService());
+
+    await expect(
+      service.canViewFullReportByVehicleId({
+        vehicleId: "vehicle-1",
+        userId: null,
+        guestSessionId: "guest-1"
+      })
+    ).resolves.toMatchObject({
+      status: "auth_required",
+      vehicleId: "vehicle-1",
+      vinMasked: "XTA2109********99"
+    });
+    expect(repository.decrementCalls).toEqual([]);
+  });
+
   it("ignores expired, canceled, and payment_failed subscriptions at now", async () => {
     const repository = new FakeReportAccessRepository();
     repository.entitlements = entitlements({ remainingReports: 0, points: 0 });
