@@ -89,6 +89,42 @@ describe("ReportAccessService", () => {
     expect(repository.decrementCalls).toEqual([]);
   });
 
+  it("records selected VIN for guest unlock previews before the auth boundary", async () => {
+    const repository = new FakeReportAccessRepository();
+    const recorder = new FakeGuestUnlockIntentRecorder();
+    const service = createService(repository, new FakePointsLedgerService(), recorder);
+
+    await service.previewUnlock({
+      vehicle: { kind: "vin", vin: VIN },
+      userId: null,
+      guestSessionId: "guest-1"
+    });
+    await service.previewUnlock({
+      vehicle: { kind: "vehicle_id", vehicleId: "vehicle-1" },
+      userId: null,
+      guestSessionId: "guest-1"
+    });
+
+    expect(recorder.calls).toEqual([
+      { guestSessionId: "guest-1", vin: VIN },
+      { guestSessionId: "guest-1", vin: VIN }
+    ]);
+  });
+
+  it("does not record selected VIN for authenticated unlock previews", async () => {
+    const repository = new FakeReportAccessRepository();
+    const recorder = new FakeGuestUnlockIntentRecorder();
+    const service = createService(repository, new FakePointsLedgerService(), recorder);
+
+    await service.previewUnlock({
+      vehicle: { kind: "vin", vin: VIN },
+      userId: "user-1",
+      guestSessionId: null
+    });
+
+    expect(recorder.calls).toEqual([]);
+  });
+
   it("unlocks through an active subscription limit before points", async () => {
     const repository = new FakeReportAccessRepository();
     repository.entitlements = entitlements({ remainingReports: 1, points: 5 });
@@ -356,11 +392,13 @@ describe("ReportAccessService", () => {
 
 function createService(
   repository: FakeReportAccessRepository,
-  points: FakePointsLedgerService
+  points: FakePointsLedgerService,
+  guestUnlockIntentRecorder?: FakeGuestUnlockIntentRecorder
 ): ReportAccessService {
   return new ReportAccessService({
     repository,
     pointsLedgerService: points as unknown as Pick<PointsLedgerService, "spendPointForAccess">,
+    ...(guestUnlockIntentRecorder === undefined ? {} : { guestUnlockIntentRecorder }),
     now: () => new Date(NOW)
   });
 }
@@ -529,5 +567,13 @@ class FakePointsLedgerService {
       balanceAfter: this.balanceAfter,
       reason: "report_access_spend"
     };
+  }
+}
+
+class FakeGuestUnlockIntentRecorder {
+  readonly calls: Array<{ guestSessionId: string; vin: string }> = [];
+
+  async recordSelectedUnlockVin(input: { guestSessionId: string; vin: string }) {
+    this.calls.push(input);
   }
 }

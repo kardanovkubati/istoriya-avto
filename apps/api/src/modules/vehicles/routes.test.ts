@@ -153,7 +153,7 @@ describe("vehicle routes", () => {
     expect(dependencies.reportCalls).toEqual([]);
   });
 
-  it("commits unlock by VIN with an idempotency key", async () => {
+  it("commits unlock by VIN with a user-scoped idempotency key", async () => {
     const accessService = new FakeAccessService();
     accessService.commitResult = {
       status: "granted",
@@ -174,7 +174,7 @@ describe("vehicle routes", () => {
     const response = await routes.request(`/api/vehicles/${VALID_VIN}/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idempotencyKey: "unlock:user-1:vehicle-1" })
+      body: JSON.stringify({ idempotencyKey: "unlock:vehicle:vehicle-1" })
     });
 
     expect(response.status).toBe(200);
@@ -196,7 +196,7 @@ describe("vehicle routes", () => {
         vehicle: { kind: "vin", vin: VALID_VIN },
         userId: "user-1",
         guestSessionId: null,
-        idempotencyKey: "unlock:user-1:vehicle-1"
+        idempotencyKey: "user:user-1:unlock:vehicle:vehicle-1"
       }
     ]);
     expect(dependencies.reportCalls).toEqual([]);
@@ -269,7 +269,7 @@ describe("vehicle routes", () => {
     const commit = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idempotencyKey: `unlock:user-1:${VALID_VEHICLE_ID}` })
+      body: JSON.stringify({ idempotencyKey: `unlock:vehicle:${VALID_VEHICLE_ID}` })
     });
 
     expect(preview.status).toBe(200);
@@ -294,6 +294,9 @@ describe("vehicle routes", () => {
       kind: "vehicle_id",
       vehicleId: VALID_VEHICLE_ID
     });
+    expect(accessService.unlockCalls[0]?.idempotencyKey).toBe(
+      `user:user-1:unlock:vehicle:${VALID_VEHICLE_ID}`
+    );
   });
 
   it("rejects invalid by-id unlock intent before access lookup", async () => {

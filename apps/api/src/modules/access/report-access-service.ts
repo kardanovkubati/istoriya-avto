@@ -1,4 +1,5 @@
 import type { PointsLedgerService } from "../points/points-ledger-service";
+import type { GuestUnlockIntentRepository } from "../guest/guest-session-repository";
 import type {
   AccessMethod,
   ReportAccessRepository,
@@ -96,6 +97,7 @@ export class ReportAccessService {
     private readonly options: {
       repository: ReportAccessRepository;
       pointsLedgerService: Pick<PointsLedgerService, "spendPointForAccess">;
+      guestUnlockIntentRecorder?: GuestUnlockIntentRepository;
       now?: () => Date;
     }
   ) {}
@@ -111,6 +113,10 @@ export class ReportAccessService {
     }
 
     if (input.userId === null) {
+      await this.recordGuestUnlockIntent({
+        guestSessionId: input.guestSessionId,
+        vin: vehicle.vin
+      });
       return this.authRequired(vehicle);
     }
 
@@ -285,6 +291,20 @@ export class ReportAccessService {
 
   private now(): Date {
     return this.options.now?.() ?? new Date();
+  }
+
+  private async recordGuestUnlockIntent(input: {
+    guestSessionId: string | null;
+    vin: string;
+  }): Promise<void> {
+    if (input.guestSessionId === null) {
+      return;
+    }
+
+    await this.options.guestUnlockIntentRecorder?.recordSelectedUnlockVin({
+      guestSessionId: input.guestSessionId,
+      vin: input.vin
+    });
   }
 }
 

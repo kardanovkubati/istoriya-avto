@@ -8,13 +8,14 @@ import {
 } from "../../db/schema";
 import type {
   GuestContextTransferRepository,
+  GuestUnlockIntentRepository,
   GuestPointGrant,
   GuestSessionRepository,
   StoredGuestSession
 } from "./guest-session-repository";
 
 export class DrizzleGuestSessionRepository
-  implements GuestSessionRepository, GuestContextTransferRepository
+  implements GuestSessionRepository, GuestContextTransferRepository, GuestUnlockIntentRepository
 {
   async create(input: { tokenHash: string; expiresAt: Date }): Promise<StoredGuestSession> {
     const [session] = await db
@@ -158,6 +159,19 @@ export class DrizzleGuestSessionRepository
       );
   }
 
+  async recordSelectedUnlockVin(input: {
+    guestSessionId: string;
+    vin: string;
+  }): Promise<void> {
+    await db.insert(guestEvents).values({
+      guestSessionId: input.guestSessionId,
+      kind: "selected_unlock_vin",
+      payload: {
+        vin: input.vin
+      }
+    });
+  }
+
   async findLatestSelectedUnlockVin(guestSessionId: string): Promise<string | null> {
     const [event] = await db
       .select({ payload: guestEvents.payload })
@@ -165,7 +179,8 @@ export class DrizzleGuestSessionRepository
       .where(
         and(
           eq(guestEvents.guestSessionId, guestSessionId),
-          eq(guestEvents.kind, "selected_unlock_vin")
+          eq(guestEvents.kind, "selected_unlock_vin"),
+          isNull(guestEvents.transferredToUserId)
         )
       )
       .orderBy(desc(guestEvents.createdAt))

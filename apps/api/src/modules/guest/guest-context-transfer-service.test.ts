@@ -66,6 +66,7 @@ describe("GuestContextTransferService", () => {
   it("is idempotent when rerun after the repository has no work left", async () => {
     const repository = new FakeGuestContextTransferRepository();
     repository.uploadsToAssign = 1;
+    repository.selectedUnlockVin = "JTDBR32E720123456";
     repository.untransferredGrants = [
       guestPointGrant({
         id: "grant-1",
@@ -92,6 +93,7 @@ describe("GuestContextTransferService", () => {
 
     expect(first.pointGrants).toBe(1);
     expect(first.reportUploads).toBe(1);
+    expect(first.selectedUnlockVin).toBe("JTDBR32E720123456");
     expect(second).toEqual({
       pointGrants: 0,
       reportUploads: 0,
@@ -326,6 +328,7 @@ class FakeGuestContextTransferRepository implements GuestContextTransferReposito
     userId: string;
   }): Promise<void> {
     this.markedEvents.push(input);
+    this.selectedUnlockVin = null;
   }
 
   async findLatestSelectedUnlockVin(): Promise<string | null> {

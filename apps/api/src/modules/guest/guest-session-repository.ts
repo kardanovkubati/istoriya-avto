@@ -32,6 +32,13 @@ export interface GuestContextTransferRepository {
   findLatestSelectedUnlockVin(guestSessionId: string): Promise<string | null>;
 }
 
+export interface GuestUnlockIntentRepository {
+  recordSelectedUnlockVin(input: {
+    guestSessionId: string;
+    vin: string;
+  }): Promise<void>;
+}
+
 export interface GuestSessionRepository {
   create(input: { tokenHash: string; expiresAt: Date }): Promise<StoredGuestSession>;
   findByTokenHash(tokenHash: string): Promise<StoredGuestSession | null>;

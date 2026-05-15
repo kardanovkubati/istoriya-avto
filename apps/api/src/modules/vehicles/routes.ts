@@ -15,7 +15,8 @@ import {
   maskVin
 } from "../access/report-access-service";
 import { DrizzleReportAccessRepository } from "../access/drizzle-report-access-repository";
-import { getRequestIdentity } from "../context/request-context";
+import { getRequestIdentity, type RequestIdentity } from "../context/request-context";
+import { DrizzleGuestSessionRepository } from "../guest/drizzle-guest-session-repository";
 import { DrizzlePointsLedgerRepository } from "../points/drizzle-points-ledger-repository";
 import { PointsLedgerService } from "../points/points-ledger-service";
 import { DrizzleVehicleReportRepository } from "./drizzle-vehicle-report-repository";
@@ -128,7 +129,7 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
       vehicle: { kind: "vin", vin },
       userId: identity.kind === "user" ? identity.userId : null,
       guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null,
-      idempotencyKey: payload.idempotencyKey
+      idempotencyKey: scopedUnlockIdempotencyKey(identity, payload.idempotencyKey)
     });
 
     return unlockCommitResponse(context, result, { includeVin: true });
@@ -170,7 +171,7 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
       vehicle: { kind: "vehicle_id", vehicleId },
       userId: identity.kind === "user" ? identity.userId : null,
       guestSessionId: identity.kind === "guest" ? identity.guestSessionId : null,
-      idempotencyKey: payload.idempotencyKey
+      idempotencyKey: scopedUnlockIdempotencyKey(identity, payload.idempotencyKey)
     });
 
     return unlockCommitResponse(context, result, { includeVin: false });
@@ -181,6 +182,7 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
 
 const vehicleReportRepository = new DrizzleVehicleReportRepository();
 const vehicleAccessRepository = new DrizzleReportAccessRepository(db);
+const guestSessionRepository = new DrizzleGuestSessionRepository();
 const pointsLedgerService = new PointsLedgerService({
   repository: new DrizzlePointsLedgerRepository(db)
 });
@@ -188,7 +190,8 @@ const pointsLedgerService = new PointsLedgerService({
 export const vehicleRoutes = createVehicleRoutes({
   accessService: new ReportAccessService({
     repository: vehicleAccessRepository,
-    pointsLedgerService
+    pointsLedgerService,
+    guestUnlockIntentRecorder: guestSessionRepository
   }),
   findPreviewByVin: (vin) => vehicleReportRepository.findPreviewByVin(vin),
   findFullReportByVin: (vin) => vehicleReportRepository.findFullReportByVin(vin)
@@ -203,6 +206,12 @@ function parseVin(value: string): string | null {
 function parseVehicleId(value: string): string | null {
   const result = vehicleIdParamSchema.safeParse(value);
   return result.success ? result.data : null;
+}
+
+function scopedUnlockIdempotencyKey(identity: RequestIdentity, idempotencyKey: string): string {
+  return identity.kind === "user"
+    ? `user:${identity.userId}:${idempotencyKey}`
+    : `guest:${identity.guestSessionId}:${idempotencyKey}`;
 }
 
 function invalidVin(context: Context) {
