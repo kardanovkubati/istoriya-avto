@@ -1,7 +1,7 @@
 # История Авто: MVP Roadmap
 
-Дата: 2026-05-14
-Статус: рабочая дорожная карта после Milestone 3
+Дата: 2026-05-15
+Статус: рабочая дорожная карта после Milestone 4
 
 ## Текущее состояние
 
@@ -47,7 +47,23 @@
 - Frontend search results flow, empty state и unlock boundary.
 - `GET /api/vehicles/:vin/report` закрыт без access grant; реальное списание баллов и подписок оставлено на Milestone 4.
 
-Главная следующая цель: запустить auth, guest session, points ledger и реальный access service в Milestone 4.
+Готов Milestone 4:
+
+- Guest session на 7 дней через HttpOnly cookie и request context.
+- Development-friendly auth assertion routes для phone, Telegram и Max как каналов аккаунта.
+- Уникальность phone/telegram/max identity без автоматического merge аккаунтов.
+- Перенос guest context в аккаунт: временные баллы, uploads и selected unlock intent.
+- Idempotent points ledger для начислений, списаний и корректировок.
+- Ограничения автоначисления: один пользователь/VIN один раз навсегда, один пользователь/fingerprint один раз, один `report_fingerprint` автоматически дает балл максимум 3 пользователям.
+- Upload flow начисляет реальные guest/user points через ledger boundary.
+- Real access service: уже открытые VIN бесплатны, затем тратится подписочный лимит, затем 1 балл.
+- Один балл или один подписочный лимит открывает сводный отчет по VIN навсегда, включая будущие обновления.
+- Unlock intent и unlock flow подключены к реальному доступу.
+- Full report route не раскрывает отчет без доступа и не читает full report до access grant.
+- UI показывает auth/access status: тариф, остаток новых отчетов, баллы, locked/unlocked states.
+- Проверки на `master`: `bun run test`, `bun run typecheck`, `bun run --cwd apps/web build`, `bun run --cwd apps/api db:generate`.
+
+Главная следующая цель: построить полноценный Full Report UI, share-ссылки и PDF export в Milestone 5.
 
 ## Milestone 1: Report Ingestion And Autoteka Parser
 
@@ -148,23 +164,36 @@ Exit criteria:
 
 ## Milestone 4: Auth, Guest Session, Points Ledger
 
+Статус: готов на `master` 2026-05-15.
+
 Цель: гость может начать сценарий без регистрации, затем закрепить доступ в аккаунте.
 
-Входит:
+Готово:
 
 - Guest session на 7 дней.
-- Auth через Telegram, Max, телефон как каналы аккаунта.
+- Auth через Telegram, Max, телефон как каналы аккаунта в MVP assertion-режиме.
 - Уникальность phone/telegram/max identity.
 - Перенос guest context в аккаунт.
-- Points ledger: начисления, списания, корректировки.
+- Points ledger: начисления, списания, корректировки, idempotency.
 - Access service: подписочный лимит сначала, потом баллы.
 - UI статуса: тариф/остаток новых отчетов/баллы.
+- Unlock boundary подключен к реальному access service.
+- Full report защищен реальным доступом.
+
+MVP-ограничения:
+
+- Real Telegram/Max bot callbacks, SMS OTP и billing provider integration остаются для следующих milestones.
+- Guests не видят full report; unlock intent сохраняется до входа.
+- OCR, Auto.ru parser и Drom parser не входят.
 
 Exit criteria:
 
 - Гость может загрузить отчет, получить временный балл и после входа сохранить его.
 - Один пользователь не получает балл за один VIN больше одного раза.
 - Один `report_fingerprint` автоматически дает балл максимум 3 разным пользователям.
+- Повторный unlock уже открытого VIN не тратит подписочный лимит или баллы.
+- Новый unlock тратит подписочный лимит раньше баллов.
+- Full report не раскрывается без доступа.
 
 ## Milestone 5: Full Report UI, Share, And PDF Export
 
@@ -268,12 +297,14 @@ Exit criteria:
 
 ## Recommended Next Session
 
-Следующая сессия должна начать с Milestone 4.
+Следующая сессия должна начать с Milestone 5.
 
 Первый рабочий результат следующей сессии:
 
-1. Создать implementation plan для `Auth, Guest Session, Points Ledger`.
-2. Спроектировать guest session на 7 дней и перенос guest context в аккаунт.
-3. Спроектировать points ledger: начисления, списания, корректировки, idempotency и ограничения по VIN/fingerprint.
-4. Подключить access service к unlock boundary так, чтобы подписочный лимит тратился раньше баллов.
-5. Обновить UI статуса доступа: тариф, остаток новых отчетов, баллы и locked/unlocked states.
+1. Создать implementation plan для `Full Report UI, Share, And PDF Export`.
+2. Сверить утвержденный порядок разделов full report с текущим read model и определить недостающие поля.
+3. Построить защищенный full report экран: доступ только после access grant, без брендов источников конкретных фактов и без персональных данных людей.
+4. Добавить явные empty states: критичные пустые разделы показывают `данных не найдено на дату обновления`, старые данные помечаются датой.
+5. Спроектировать share-ссылку на 7 дней: token access, noindex, без PDF download и без resharing.
+6. Спроектировать PDF export в нашем оформлении, без копирования сторонних отчетов и без раскрытия закрытых raw artifacts.
+7. Подготовить tests-first план и review gates для API, UI, share expiry, noindex и report-data leak guards.
