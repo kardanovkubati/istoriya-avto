@@ -86,6 +86,39 @@ describe("report share routes", () => {
     expect(shareService.viewCalls).toEqual([shareService.resolvedShare]);
   });
 
+  it("returns owner-only PDF export with noindex headers", async () => {
+    const accessService = new FakeAccessService();
+    accessService.reportByVehicleIdResult = {
+      status: "granted",
+      method: "already_opened",
+      vehicleId: VALID_VEHICLE_ID
+    };
+    const dependencies = createDependencies({ accessService });
+    const app = createTestApp(dependencies, userIdentity());
+
+    const response = await app.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/report.pdf`);
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("application/pdf");
+    expect(response.headers.get("content-disposition")).toContain("attachment");
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow");
+    expect(text.startsWith("%PDF-1.4")).toBe(true);
+    expect(text).not.toContain("sourceKind");
+    expect(text).not.toContain("Автотека");
+    expect(dependencies.reportByVehicleIdCalls).toEqual([VALID_VEHICLE_ID]);
+  });
+
+  it("rejects guest PDF export before report lookup", async () => {
+    const dependencies = createDependencies();
+    const app = createTestApp(dependencies, guestIdentity());
+
+    const response = await app.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/report.pdf`);
+
+    expect(response.status).toBe(401);
+    expect(dependencies.reportByVehicleIdCalls).toEqual([]);
+  });
+
   it("returns neutral not found for unknown or expired share token before report lookup", async () => {
     const dependencies = createDependencies();
     const app = createTestApp(dependencies, guestIdentity());

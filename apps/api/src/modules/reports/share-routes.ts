@@ -10,6 +10,7 @@ import {
   type VehicleFullReportReadModel
 } from "../vehicles/report-read-model";
 import { buildReportPresentation } from "./report-presentation";
+import { renderReportPdf } from "./report-pdf";
 import { ShareLinkService } from "./share-link-service";
 
 const vehicleIdParamSchema = z.string().uuid();
@@ -96,6 +97,48 @@ export function createReportShareRoutes(dependencies: ReportShareRoutesDependenc
     });
   });
 
+  routes.get("/vehicles/by-id/:vehicleId/report.pdf", async (context) => {
+    const vehicleId = parseVehicleId(context.req.param("vehicleId"));
+    if (vehicleId === null) {
+      return invalidVehicleId(context);
+    }
+
+    const identity = getRequestIdentity(context);
+    if (identity.kind !== "user") {
+      return authRequired(context);
+    }
+
+    const access = await dependencies.accessService.canViewFullReportByVehicleId({
+      vehicleId,
+      userId: identity.userId,
+      guestSessionId: null
+    });
+    if (access.status !== "granted") {
+      return lockedReport(context, access);
+    }
+
+    const report = await dependencies.findFullReportByVehicleId(vehicleId);
+    if (report === null) {
+      return vehicleReportNotFound(context);
+    }
+
+    assertNoSourceBrandLeak(report);
+    const presentation = buildReportPresentation({ report, mode: "owner" });
+    const pdf = renderReportPdf({
+      title: reportTitle(report),
+      presentation
+    });
+
+    const body = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer;
+    return new Response(body, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="istoriya-avto-${vehicleId}.pdf"`,
+        "X-Robots-Tag": "noindex, nofollow"
+      }
+    });
+  });
+
   return routes;
 }
 
@@ -160,4 +203,22 @@ function shareLinkNotFound(context: Context) {
     },
     404
   );
+}
+
+function vehicleReportNotFound(context: Context) {
+  return context.json(
+    {
+      error: {
+        code: "vehicle_report_not_found",
+        message: "Отчета по этому VIN пока нет."
+      }
+    },
+    404
+  );
+}
+
+function reportTitle(report: VehicleFullReportReadModel): string {
+  return [report.passport.make, report.passport.model, report.passport.year]
+    .filter((value) => value !== null && value !== undefined)
+    .join(" ") || "Автомобиль";
 }
