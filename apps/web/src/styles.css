@@ -505,8 +505,15 @@ h1 {
   opacity: 0.48;
 }
 
+.unlock-button-opened:disabled {
+  background: #dfe9e3;
+  color: var(--accent-dark);
+  opacity: 1;
+}
+
 .unlock-button span,
-.empty-state button span {
+.empty-state button span,
+.unlock-confirm-button span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -545,6 +552,11 @@ h1 {
   background: #fff3ed;
 }
 
+.unlock-panel-opened {
+  border-color: rgba(12, 124, 89, 0.2);
+  background: #eaf5ef;
+}
+
 .unlock-panel-warning {
   border-color: rgba(182, 83, 43, 0.22);
   background: #fff8f0;
@@ -556,6 +568,37 @@ h1 {
 
 .unlock-panel-warning svg {
   color: var(--warning);
+}
+
+.unlock-confirm-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  max-width: 100%;
+  min-height: 34px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.15;
+  transition:
+    background 160ms ease,
+    transform 160ms ease,
+    opacity 160ms ease;
+}
+
+.unlock-confirm-button:hover:not(:disabled) {
+  background: var(--accent-dark);
+  transform: translateY(-1px);
+}
+
+.unlock-confirm-button:disabled {
+  opacity: 0.58;
 }
 
 .empty-state {

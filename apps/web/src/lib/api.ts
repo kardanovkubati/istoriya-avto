@@ -107,6 +107,17 @@ export type UnlockIntentResponse = {
       };
 };
 
+export type UnlockCommitResponse = {
+  access: {
+    status: "granted";
+    method: "subscription_limit" | "point" | "already_opened";
+    vehicleId: string;
+    vin?: string;
+    vinMasked?: string;
+  };
+  entitlements: ContextResponse["entitlements"];
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
 
 export async function fetchContext(): Promise<ContextResponse> {
@@ -185,4 +196,36 @@ export async function createUnlockIntentByVehicleId(vehicleId: string): Promise<
   }
 
   return response.json() as Promise<UnlockIntentResponse>;
+}
+
+export async function unlockVehicleReport(input: {
+  vin?: string | undefined;
+  vehicleId?: string | undefined;
+  idempotencyKey: string;
+}): Promise<UnlockCommitResponse> {
+  let path: string;
+  if (input.vin) {
+    path = `/api/vehicles/${encodeURIComponent(input.vin)}/unlock`;
+  } else {
+    const vehicleId = input.vehicleId;
+    if (!vehicleId) {
+      throw new Error("Не удалось определить отчет.");
+    }
+    path = `/api/vehicles/by-id/${encodeURIComponent(vehicleId)}/unlock`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({ idempotencyKey: input.idempotencyKey })
+  });
+
+  if (!response.ok) {
+    throw new Error("Не удалось открыть отчет.");
+  }
+
+  return response.json() as Promise<UnlockCommitResponse>;
 }

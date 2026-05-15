@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -18,8 +18,10 @@ import {
   createUnlockIntentByVehicleId,
   fetchContext,
   searchVehicles,
+  unlockVehicleReport,
   type ContextResponse,
   type SearchResultResponse,
+  type UnlockCommitResponse,
   type UnlockIntentResponse
 } from "./lib/api";
 
@@ -34,11 +36,14 @@ type ContextState =
   | { status: "success"; data: ContextResponse }
   | { status: "error"; message: string };
 
-type UnlockState =
-  | { status: "idle" }
-  | { status: "loading"; candidateId: string }
-  | { status: "success"; candidateId: string; unlock: UnlockIntentResponse["unlock"] }
-  | { status: "error"; candidateId: string; message: string };
+type CandidateUnlockState =
+  | { status: "intent_loading" }
+  | { status: "intent"; unlock: UnlockIntentResponse["unlock"] }
+  | { status: "commit_loading"; unlock: Extract<UnlockIntentResponse["unlock"], { status: "ready" }> }
+  | { status: "unlocked"; warning: string | undefined }
+  | { status: "error"; message: string };
+
+type UnlockStates = Record<string, CandidateUnlockState>;
 
 type Candidate = SearchResultResponse["candidates"][number];
 
@@ -61,7 +66,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [contextState, setContextState] = useState<ContextState>({ status: "loading" });
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
-  const [unlockState, setUnlockState] = useState<UnlockState>({ status: "idle" });
+  const [unlockStates, setUnlockStates] = useState<UnlockStates>({});
+  const searchRunIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
   const canSubmit = trimmedQuery.length > 0 && searchState.status !== "loading";
@@ -124,13 +130,22 @@ function App() {
       return;
     }
 
-    setUnlockState({ status: "idle" });
+    const nextSearchRunId = searchRunIdRef.current + 1;
+    searchRunIdRef.current = nextSearchRunId;
+    setUnlockStates({});
     setSearchState({ status: "loading" });
 
     try {
       const data = await searchVehicles(trimmedQuery);
+      if (nextSearchRunId !== searchRunIdRef.current) {
+        return;
+      }
       setSearchState({ status: "success", data });
     } catch (error) {
+      if (nextSearchRunId !== searchRunIdRef.current) {
+        return;
+      }
+
       setSearchState({
         status: "error",
         message: error instanceof Error ? error.message : "Не удалось выполнить поиск."
@@ -140,34 +155,133 @@ function App() {
 
   async function handleUnlock(candidate: Candidate) {
     if (!candidate.unlock.canRequestUnlock) return;
+    const requestSearchRunId = searchRunIdRef.current;
 
-    setUnlockState({ status: "loading", candidateId: candidate.id });
+    setUnlockStates((current) => ({
+      ...current,
+      [candidate.id]: { status: "intent_loading" }
+    }));
 
     try {
-      const vehicleId = candidate.preview.vehicleId;
-      if (vehicleId !== null) {
-        const data = await createUnlockIntentByVehicleId(vehicleId);
-        setUnlockState({ status: "success", candidateId: candidate.id, unlock: data.unlock });
+      const data = await createUnlockIntentForCandidate(candidate);
+      if (requestSearchRunId !== searchRunIdRef.current) {
         return;
       }
 
-      if (searchState.status === "success" && searchState.data.query.kind === "vin") {
-        const data = await createUnlockIntent(searchState.data.query.normalized);
-        setUnlockState({ status: "success", candidateId: candidate.id, unlock: data.unlock });
+      if (data.unlock.status === "already_opened") {
+        setUnlockStates((current) => ({
+          ...current,
+          [candidate.id]: { status: "unlocked", warning: getUnlockWarning(data.unlock) }
+        }));
         return;
       }
 
-      setUnlockState({
-        status: "error",
-        candidateId: candidate.id,
-        message: "Не удалось определить отчет."
-      });
+      setUnlockStates((current) => ({
+        ...current,
+        [candidate.id]: { status: "intent", unlock: data.unlock }
+      }));
     } catch (error) {
-      setUnlockState({
-        status: "error",
-        candidateId: candidate.id,
-        message: error instanceof Error ? error.message : "Не удалось подготовить открытие отчета."
-      });
+      if (requestSearchRunId !== searchRunIdRef.current) {
+        return;
+      }
+
+      setUnlockStates((current) => ({
+        ...current,
+        [candidate.id]: {
+          status: "error",
+          message: error instanceof Error ? error.message : "Не удалось подготовить открытие отчета."
+        }
+      }));
+    }
+  }
+
+  async function createUnlockIntentForCandidate(candidate: Candidate): Promise<UnlockIntentResponse> {
+    if (searchState.status === "success" && searchState.data.query.kind === "vin") {
+      return createUnlockIntent(searchState.data.query.normalized);
+    }
+
+    if (candidate.preview.vehicleId !== null) {
+      return createUnlockIntentByVehicleId(candidate.preview.vehicleId);
+    }
+
+    throw new Error("Не удалось определить отчет.");
+  }
+
+  async function handleConfirmUnlock(candidate: Candidate) {
+    const state = unlockStates[candidate.id];
+    if (state?.status !== "intent" || state.unlock.status !== "ready") return;
+    const readyUnlock = state.unlock;
+    const requestSearchRunId = searchRunIdRef.current;
+
+    setUnlockStates((current) => ({
+      ...current,
+      [candidate.id]: { status: "commit_loading", unlock: readyUnlock }
+    }));
+
+    try {
+      const isVinQuery = searchState.status === "success" && searchState.data.query.kind === "vin";
+      const unlockInput = isVinQuery && searchState.status === "success"
+        ? {
+            vin: searchState.data.query.normalized,
+            idempotencyKey: `unlock:${candidate.id}`
+          }
+        : {
+            vehicleId: candidate.preview.vehicleId ?? undefined,
+            idempotencyKey: `unlock:${candidate.id}`
+          };
+
+      const unlockResult = await unlockVehicleReport(unlockInput);
+      if (requestSearchRunId !== searchRunIdRef.current) {
+        return;
+      }
+
+      applyUnlockedEntitlements(unlockResult);
+
+      setUnlockStates((current) => ({
+        ...current,
+        [candidate.id]: { status: "unlocked", warning: readyUnlock.warning }
+      }));
+
+      void refreshContextSoft(requestSearchRunId);
+    } catch (error) {
+      if (requestSearchRunId !== searchRunIdRef.current) {
+        return;
+      }
+
+      setUnlockStates((current) => ({
+        ...current,
+        [candidate.id]: {
+          status: "error",
+          message: error instanceof Error ? error.message : "Не удалось открыть отчет."
+        }
+      }));
+    }
+  }
+
+  function applyUnlockedEntitlements(result: UnlockCommitResponse) {
+    setContextState((current) => {
+      if (current.status !== "success" || current.data.session.kind !== "user") {
+        return current;
+      }
+
+      return {
+        status: "success",
+        data: {
+          ...current.data,
+          entitlements: result.entitlements
+        }
+      };
+    });
+  }
+
+  async function refreshContextSoft(requestSearchRunId: number) {
+    try {
+      const context = await fetchContext();
+      if (requestSearchRunId === searchRunIdRef.current) {
+        setContextState({ status: "success", data: context });
+      }
+    } catch {
+      // The unlock commit already succeeded; keep the committed entitlements visible.
     }
   }
 
@@ -244,7 +358,8 @@ function App() {
                   candidate={candidate}
                   key={candidate.id}
                   onUnlock={handleUnlock}
-                  unlockState={unlockState}
+                  onConfirmUnlock={handleConfirmUnlock}
+                  unlockState={unlockStates[candidate.id]}
                 />
               ))}
             </div>
@@ -284,15 +399,18 @@ function App() {
 function CandidateCard({
   candidate,
   onUnlock,
+  onConfirmUnlock,
   unlockState
 }: {
   candidate: Candidate;
   onUnlock: (candidate: Candidate) => void;
-  unlockState: UnlockState;
+  onConfirmUnlock: (candidate: Candidate) => void;
+  unlockState: CandidateUnlockState | undefined;
 }) {
   const listing = candidate.preview.lastListing;
-  const isUnlockLoading = unlockState.status === "loading";
-  const isCurrentCandidate = unlockState.status !== "idle" && unlockState.candidateId === candidate.id;
+  const isUnlockLoading =
+    unlockState?.status === "intent_loading" || unlockState?.status === "commit_loading";
+  const isUnlocked = unlockState?.status === "unlocked";
 
   return (
     <article className="candidate-card">
@@ -333,20 +451,40 @@ function CandidateCard({
         <p className="candidate-warning">{candidate.unlock.warning}</p>
 
         <button
-          className="unlock-button"
+          className={`unlock-button${isUnlocked ? " unlock-button-opened" : ""}`}
           type="button"
-          disabled={!candidate.unlock.canRequestUnlock || isUnlockLoading}
+          disabled={!candidate.unlock.canRequestUnlock || isUnlockLoading || isUnlocked}
           onClick={() => onUnlock(candidate)}
         >
           <LockKeyhole aria-hidden="true" size={17} />
-          <span>{candidate.unlock.canRequestUnlock ? "Открыть отчет" : "Загрузить отчет"}</span>
+          <span>{unlockButtonLabel(candidate, unlockState)}</span>
         </button>
 
-        {isCurrentCandidate && unlockState.status === "success" && (
-          <UnlockPanel unlock={unlockState.unlock} fallbackWarning={candidate.unlock.warning} />
+        {unlockState?.status === "intent" && (
+          <UnlockPanel
+            unlock={unlockState.unlock}
+            fallbackWarning={candidate.unlock.warning}
+            {...(unlockState.unlock.status === "ready"
+              ? { onConfirm: () => onConfirmUnlock(candidate) }
+              : {})}
+          />
         )}
 
-        {isCurrentCandidate && unlockState.status === "error" && (
+        {unlockState?.status === "commit_loading" && (
+          <UnlockPanel unlock={unlockState.unlock} fallbackWarning={candidate.unlock.warning} isConfirming />
+        )}
+
+        {unlockState?.status === "unlocked" && (
+          <div className="unlock-panel unlock-panel-opened">
+            <BadgeCheck aria-hidden="true" size={18} />
+            <div>
+              <p>Открыт навсегда</p>
+              <small>{unlockState.warning ?? "Доступ закреплен за аккаунтом."}</small>
+            </div>
+          </div>
+        )}
+
+        {unlockState?.status === "error" && (
           <div className="unlock-panel unlock-panel-error">
             <WalletCards aria-hidden="true" size={18} />
             <p>{unlockState.message}</p>
@@ -396,10 +534,14 @@ function AccountStatusStrip({ contextState }: { contextState: ContextState }) {
 
 function UnlockPanel({
   unlock,
-  fallbackWarning
+  fallbackWarning,
+  onConfirm,
+  isConfirming = false
 }: {
   unlock: UnlockIntentResponse["unlock"];
   fallbackWarning: string;
+  onConfirm?: () => void;
+  isConfirming?: boolean;
 }) {
   const view = unlockView(unlock, fallbackWarning);
 
@@ -409,6 +551,12 @@ function UnlockPanel({
       <div>
         <p>{view.message}</p>
         {view.detail && <small>{view.detail}</small>}
+        {(onConfirm || isConfirming) && (
+          <button className="unlock-confirm-button" type="button" onClick={onConfirm} disabled={isConfirming}>
+            <BadgeCheck aria-hidden="true" size={16} />
+            <span>{isConfirming ? "Открываем" : "Подтвердить открытие"}</span>
+          </button>
+        )}
       </div>
     </div>
   );
@@ -488,6 +636,30 @@ function formatGuestExpiry(value: string): string {
   }
 
   return `${datePart[3]}.${datePart[2]}`;
+}
+
+function unlockButtonLabel(candidate: Candidate, unlockState?: CandidateUnlockState): string {
+  if (!candidate.unlock.canRequestUnlock) {
+    return "Загрузить отчет";
+  }
+
+  if (unlockState?.status === "intent_loading") {
+    return "Проверяем доступ";
+  }
+
+  if (unlockState?.status === "commit_loading") {
+    return "Открываем";
+  }
+
+  if (unlockState?.status === "unlocked") {
+    return "Открыт навсегда";
+  }
+
+  return "Открыть отчет";
+}
+
+function getUnlockWarning(unlock: UnlockIntentResponse["unlock"]): string | undefined {
+  return "warning" in unlock ? unlock.warning : undefined;
 }
 
 export default App;
