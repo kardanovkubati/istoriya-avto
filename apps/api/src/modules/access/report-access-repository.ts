@@ -29,6 +29,20 @@ export type UserEntitlements = {
   points: number;
 };
 
+export type CommitUnlockResult =
+  | {
+      status: "granted";
+      method: Exclude<AccessMethod, "already_opened">;
+      access: VehicleAccess;
+    }
+  | {
+      status: "already_opened";
+      access: VehicleAccess;
+    }
+  | {
+      status: "payment_required";
+    };
+
 export interface ReportAccessRepository {
   findVehicleByVin(vin: string): Promise<ReportAccessVehicle | null>;
   findVehicleById(vehicleId: string): Promise<ReportAccessVehicle | null>;
@@ -43,5 +57,11 @@ export interface ReportAccessRepository {
     vehicleId: string;
     accessMethod: AccessMethod;
   }): Promise<VehicleAccess>;
-  getEntitlements(userId: string): Promise<UserEntitlements>;
+  commitUnlock(input: {
+    userId: string;
+    vehicleId: string;
+    idempotencyKey: string;
+    now: Date;
+  }): Promise<CommitUnlockResult>;
+  getEntitlements(input: { userId: string; now: Date }): Promise<UserEntitlements>;
 }

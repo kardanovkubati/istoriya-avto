@@ -23,6 +23,7 @@ import { DrizzleVehicleReportRepository } from "./drizzle-vehicle-report-reposit
 const unlockPayloadSchema = z.object({
   idempotencyKey: z.string().min(1)
 });
+const vehicleIdParamSchema = z.string().uuid();
 
 export type VehicleRoutesDependencies = {
   accessService: ReportAccessService;
@@ -134,7 +135,11 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
   });
 
   routes.post("/by-id/:vehicleId/unlock-intent", async (context) => {
-    const vehicleId = context.req.param("vehicleId");
+    const vehicleId = parseVehicleId(context.req.param("vehicleId"));
+    if (vehicleId === null) {
+      return invalidVehicleId(context);
+    }
+
     const identity = getRequestIdentity(context);
     const unlock = await dependencies.accessService.previewUnlock({
       vehicle: { kind: "vehicle_id", vehicleId },
@@ -150,7 +155,11 @@ export function createVehicleRoutes(dependencies: VehicleRoutesDependencies): Ho
   });
 
   routes.post("/by-id/:vehicleId/unlock", async (context) => {
-    const vehicleId = context.req.param("vehicleId");
+    const vehicleId = parseVehicleId(context.req.param("vehicleId"));
+    if (vehicleId === null) {
+      return invalidVehicleId(context);
+    }
+
     const payload = await parseUnlockPayload(context.req.json());
     if (payload === null) {
       return invalidUnlockRequest(context);
@@ -191,12 +200,29 @@ function parseVin(value: string): string | null {
   return detection.kind === "vin" ? detection.normalized : null;
 }
 
+function parseVehicleId(value: string): string | null {
+  const result = vehicleIdParamSchema.safeParse(value);
+  return result.success ? result.data : null;
+}
+
 function invalidVin(context: Context) {
   return context.json(
     {
       error: {
         code: "invalid_vin",
         message: "Передайте корректный VIN."
+      }
+    },
+    400
+  );
+}
+
+function invalidVehicleId(context: Context) {
+  return context.json(
+    {
+      error: {
+        code: "invalid_vehicle_id",
+        message: "Передайте корректный идентификатор автомобиля."
       }
     },
     400

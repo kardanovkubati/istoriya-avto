@@ -17,6 +17,7 @@ import {
 import { createVehicleRoutes, type VehicleRoutesDependencies } from "./routes";
 
 const VALID_VIN = "XTA210990Y2765499";
+const VALID_VEHICLE_ID = "11111111-1111-4111-8111-111111111111";
 
 describe("vehicle routes", () => {
   it("returns vehicle preview by VIN", async () => {
@@ -236,7 +237,7 @@ describe("vehicle routes", () => {
     const accessService = new FakeAccessService();
     accessService.previewResult = {
       status: "ready",
-      vehicleId: "vehicle-1",
+      vehicleId: VALID_VEHICLE_ID,
       vinMasked: "XTA2109********99",
       spendOrder: "point",
       willSpendSubscriptionReport: false,
@@ -249,7 +250,7 @@ describe("vehicle routes", () => {
     accessService.commitResult = {
       status: "granted",
       method: "point",
-      vehicleId: "vehicle-1",
+      vehicleId: VALID_VEHICLE_ID,
       vin: VALID_VIN,
       entitlements: {
         plan: null,
@@ -262,13 +263,13 @@ describe("vehicle routes", () => {
     });
     const routes = createTestApp(dependencies, userIdentity());
 
-    const preview = await routes.request("/api/vehicles/by-id/vehicle-1/unlock-intent", {
+    const preview = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/unlock-intent`, {
       method: "POST"
     });
-    const commit = await routes.request("/api/vehicles/by-id/vehicle-1/unlock", {
+    const commit = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idempotencyKey: "unlock:user-1:vehicle-1" })
+      body: JSON.stringify({ idempotencyKey: `unlock:user-1:${VALID_VEHICLE_ID}` })
     });
 
     expect(preview.status).toBe(200);
@@ -279,7 +280,7 @@ describe("vehicle routes", () => {
       access: {
         status: "granted",
         method: "point",
-        vehicleId: "vehicle-1",
+        vehicleId: VALID_VEHICLE_ID,
         vinMasked: "XTA2109********99"
       },
       entitlements: {
@@ -291,15 +292,61 @@ describe("vehicle routes", () => {
     expect(JSON.stringify(body)).not.toContain(VALID_VIN);
     expect(accessService.unlockCalls[0]?.vehicle).toEqual({
       kind: "vehicle_id",
-      vehicleId: "vehicle-1"
+      vehicleId: VALID_VEHICLE_ID
     });
+  });
+
+  it("rejects invalid by-id unlock intent before access lookup", async () => {
+    const accessService = new FakeAccessService();
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const response = await routes.request("/api/vehicles/by-id/not-a-uuid/unlock-intent", {
+      method: "POST"
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "invalid_vehicle_id",
+        message: "Передайте корректный идентификатор автомобиля."
+      }
+    });
+    expect(accessService.previewCalls).toEqual([]);
+    expect(accessService.unlockCalls).toEqual([]);
+  });
+
+  it("rejects invalid by-id unlock commits before access lookup", async () => {
+    const accessService = new FakeAccessService();
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const response = await routes.request("/api/vehicles/by-id/not-a-uuid/unlock", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: "unlock:bad-id" })
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: {
+        code: "invalid_vehicle_id",
+        message: "Передайте корректный идентификатор автомобиля."
+      }
+    });
+    expect(accessService.previewCalls).toEqual([]);
+    expect(accessService.unlockCalls).toEqual([]);
   });
 
   it("returns vehicleId and masked VIN for by-id auth_required commits without returning full VIN", async () => {
     const accessService = new FakeAccessService();
     accessService.commitResult = {
       status: "auth_required",
-      vehicleId: "vehicle-1",
+      vehicleId: VALID_VEHICLE_ID,
       vinMasked: "XTA2109********99",
       options: ["telegram", "max", "phone"],
       message: "Войдите, чтобы закрепить доступ к отчету.",
@@ -311,10 +358,10 @@ describe("vehicle routes", () => {
     });
     const routes = createTestApp(dependencies, guestIdentity());
 
-    const response = await routes.request("/api/vehicles/by-id/vehicle-1/unlock", {
+    const response = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idempotencyKey: "unlock:guest:vehicle-1" })
+      body: JSON.stringify({ idempotencyKey: `unlock:guest:${VALID_VEHICLE_ID}` })
     });
     const body = await response.json();
 
@@ -325,7 +372,7 @@ describe("vehicle routes", () => {
         message: "Войдите, чтобы открыть полный отчет.",
         unlock: {
           status: "auth_required",
-          vehicleId: "vehicle-1",
+          vehicleId: VALID_VEHICLE_ID,
           vinMasked: "XTA2109********99",
           options: ["telegram", "max", "phone"],
           message: "Войдите, чтобы закрепить доступ к отчету.",
@@ -341,7 +388,7 @@ describe("vehicle routes", () => {
     const accessService = new FakeAccessService();
     accessService.commitResult = {
       status: "payment_required",
-      vehicleId: "vehicle-1",
+      vehicleId: VALID_VEHICLE_ID,
       vinMasked: "XTA2109********99",
       options: ["upload_report", "choose_plan"],
       willSpendPoints: false,
@@ -352,10 +399,10 @@ describe("vehicle routes", () => {
     });
     const routes = createTestApp(dependencies, userIdentity());
 
-    const response = await routes.request("/api/vehicles/by-id/vehicle-1/unlock", {
+    const response = await routes.request(`/api/vehicles/by-id/${VALID_VEHICLE_ID}/unlock`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ idempotencyKey: "unlock:user-1:vehicle-1" })
+      body: JSON.stringify({ idempotencyKey: `unlock:user-1:${VALID_VEHICLE_ID}` })
     });
     const body = await response.json();
 
@@ -366,7 +413,7 @@ describe("vehicle routes", () => {
         message: "Загрузите отчет или выберите тариф, чтобы открыть полный отчет.",
         unlock: {
           status: "payment_required",
-          vehicleId: "vehicle-1",
+          vehicleId: VALID_VEHICLE_ID,
           vinMasked: "XTA2109********99",
           options: ["upload_report", "choose_plan"],
           willSpendPoints: false,

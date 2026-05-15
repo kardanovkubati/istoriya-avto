@@ -1,4 +1,3 @@
-import type { PointsLedgerMutationResult } from "../points/points-ledger-repository";
 import type { PointsLedgerService } from "../points/points-ledger-service";
 import type {
   AccessMethod,
@@ -128,12 +127,16 @@ export class ReportAccessService {
       };
     }
 
+    const now = this.now();
     const activeSubscription = await this.options.repository.findActiveSubscription({
       userId: input.userId,
-      now: this.now()
+      now
     });
     if (activeSubscription !== null && activeSubscription.remainingReports > 0) {
-      const entitlements = await this.options.repository.getEntitlements(input.userId);
+      const entitlements = await this.options.repository.getEntitlements({
+        userId: input.userId,
+        now
+      });
       return {
         status: "ready",
         vehicleId: vehicle.id,
@@ -147,7 +150,10 @@ export class ReportAccessService {
       };
     }
 
-    const entitlements = await this.options.repository.getEntitlements(input.userId);
+    const entitlements = await this.options.repository.getEntitlements({
+      userId: input.userId,
+      now
+    });
     if (entitlements.points > 0) {
       return {
         status: "ready",
@@ -180,54 +186,22 @@ export class ReportAccessService {
       return this.authRequired(vehicle);
     }
 
-    const existingAccess = await this.options.repository.findVehicleAccess({
+    const now = this.now();
+    const commit = await this.options.repository.commitUnlock({
       userId: input.userId,
-      vehicleId: vehicle.id
+      vehicleId: vehicle.id,
+      idempotencyKey: input.idempotencyKey,
+      now
     });
-    if (existingAccess !== null) {
-      return this.granted(vehicle, "already_opened", await this.entitlements(input.userId));
-    }
-
-    const activeSubscription = await this.options.repository.findActiveSubscription({
-      userId: input.userId,
-      now: this.now()
-    });
-    if (activeSubscription !== null && activeSubscription.remainingReports > 0) {
-      await this.options.repository.decrementSubscriptionReport({
-        subscriptionId: activeSubscription.id
-      });
-      await this.options.repository.createVehicleAccess({
-        userId: input.userId,
-        vehicleId: vehicle.id,
-        accessMethod: "subscription_limit"
-      });
-      return this.granted(
-        vehicle,
-        "subscription_limit",
-        await this.entitlements(input.userId)
-      );
-    }
-
-    const entitlements = await this.options.repository.getEntitlements(input.userId);
-    if (entitlements.points <= 0) {
+    if (commit.status === "payment_required") {
       return this.paymentRequired(vehicle);
     }
 
-    const spend = await this.options.pointsLedgerService.spendPointForAccess({
-      userId: input.userId,
-      vehicleId: vehicle.id,
-      idempotencyKey: input.idempotencyKey
-    });
-    if (spend.status === "denied") {
-      return this.paymentRequired(vehicle);
-    }
-
-    await this.options.repository.createVehicleAccess({
-      userId: input.userId,
-      vehicleId: vehicle.id,
-      accessMethod: "point"
-    });
-    return this.granted(vehicle, "point", await this.entitlementsAfterSpend(input.userId, spend));
+    return this.granted(
+      vehicle,
+      commit.status === "already_opened" ? "already_opened" : commit.method,
+      await this.entitlements(input.userId, now)
+    );
   }
 
   async canViewFullReport(input: {
@@ -269,18 +243,8 @@ export class ReportAccessService {
       : await this.options.repository.findVehicleById(input.vehicleId);
   }
 
-  private async entitlements(userId: string): Promise<UserEntitlements> {
-    return await this.options.repository.getEntitlements(userId);
-  }
-
-  private async entitlementsAfterSpend(
-    userId: string,
-    spend: PointsLedgerMutationResult
-  ): Promise<UserEntitlements> {
-    const entitlements = await this.entitlements(userId);
-    return spend.balanceAfter === null
-      ? entitlements
-      : { ...entitlements, points: spend.balanceAfter };
+  private async entitlements(userId: string, now: Date): Promise<UserEntitlements> {
+    return await this.options.repository.getEntitlements({ userId, now });
   }
 
   private granted(
@@ -355,6 +319,9 @@ export function createLockedReportAccessService(): ReportAccessService {
       },
       async createVehicleAccess() {
         throw new Error("locked_access_service_cannot_create_access");
+      },
+      async commitUnlock() {
+        return { status: "payment_required" };
       },
       async getEntitlements() {
         return { plan: null, remainingReports: 0, points: 0 };

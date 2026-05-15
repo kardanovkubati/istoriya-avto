@@ -3,6 +3,7 @@ import type { PointsLedgerMutationResult } from "../points/points-ledger-reposit
 import type { PointsLedgerService } from "../points/points-ledger-service";
 import type {
   ActiveSubscription,
+  CommitUnlockResult,
   ReportAccessRepository,
   UserEntitlements,
   VehicleAccess
@@ -15,7 +16,10 @@ const VIN = "XTA210990Y2765499";
 describe("ReportAccessService", () => {
   it("grants an already opened vehicle without spending subscription or points", async () => {
     const repository = new FakeReportAccessRepository();
-    repository.accesses.push(access({ accessMethod: "point" }));
+    repository.commitResult = {
+      status: "already_opened",
+      access: access({ accessMethod: "point" })
+    };
     const points = new FakePointsLedgerService();
     const service = createService(repository, points);
 
@@ -32,6 +36,14 @@ describe("ReportAccessService", () => {
       vehicleId: "vehicle-1",
       vin: VIN
     });
+    expect(repository.commitCalls).toEqual([
+      {
+        userId: "user-1",
+        vehicleId: "vehicle-1",
+        idempotencyKey: "unlock-1",
+        now: NOW
+      }
+    ]);
     expect(repository.decrementCalls).toEqual([]);
     expect(points.spendCalls).toEqual([]);
     expect(repository.accesses).toHaveLength(1);
@@ -79,16 +91,12 @@ describe("ReportAccessService", () => {
 
   it("unlocks through an active subscription limit before points", async () => {
     const repository = new FakeReportAccessRepository();
-    repository.entitlements = entitlements({ remainingReports: 2, points: 5 });
-    repository.subscriptions.push(
-      subscription({
-        id: "sub-1",
-        remainingReports: 2,
-        status: "active",
-        currentPeriodStart: new Date("2026-05-01T00:00:00.000Z"),
-        currentPeriodEnd: new Date("2026-06-01T00:00:00.000Z")
-      })
-    );
+    repository.entitlements = entitlements({ remainingReports: 1, points: 5 });
+    repository.commitResult = {
+      status: "granted",
+      method: "subscription_limit",
+      access: access({ accessMethod: "subscription_limit" })
+    };
     const points = new FakePointsLedgerService();
     const service = createService(repository, points);
 
@@ -107,7 +115,8 @@ describe("ReportAccessService", () => {
         points: 5
       }
     });
-    expect(repository.decrementCalls).toEqual([{ subscriptionId: "sub-1" }]);
+    expect(repository.commitCalls).toHaveLength(1);
+    expect(repository.decrementCalls).toEqual([]);
     expect(points.spendCalls).toEqual([]);
     expect(repository.accesses).toMatchObject([
       {
@@ -120,9 +129,13 @@ describe("ReportAccessService", () => {
 
   it("unlocks through a point when subscription limit is unavailable", async () => {
     const repository = new FakeReportAccessRepository();
-    repository.entitlements = entitlements({ remainingReports: 0, points: 2 });
+    repository.entitlements = entitlements({ remainingReports: 0, points: 1 });
+    repository.commitResult = {
+      status: "granted",
+      method: "point",
+      access: access({ accessMethod: "point" })
+    };
     const points = new FakePointsLedgerService();
-    points.balanceAfter = 1;
     const service = createService(repository, points);
 
     const result = await service.unlock({
@@ -140,20 +153,23 @@ describe("ReportAccessService", () => {
         points: 1
       }
     });
-    expect(repository.decrementCalls).toEqual([]);
-    expect(points.spendCalls).toEqual([
+    expect(repository.commitCalls).toEqual([
       {
         userId: "user-1",
         vehicleId: "vehicle-1",
-        idempotencyKey: "unlock-point"
+        idempotencyKey: "unlock-point",
+        now: NOW
       }
     ]);
+    expect(repository.decrementCalls).toEqual([]);
+    expect(points.spendCalls).toEqual([]);
     expect(repository.accesses[0]?.accessMethod).toBe("point");
   });
 
   it("returns payment_required when neither subscription limit nor points are available", async () => {
     const repository = new FakeReportAccessRepository();
     repository.entitlements = entitlements({ remainingReports: 0, points: 0 });
+    repository.commitResult = { status: "payment_required" };
     const points = new FakePointsLedgerService();
     const service = createService(repository, points);
 
@@ -174,11 +190,60 @@ describe("ReportAccessService", () => {
     expect(repository.accesses).toEqual([]);
   });
 
+  it("uses the same now for atomic commit and entitlement reads", async () => {
+    const repository = new FakeReportAccessRepository();
+    repository.entitlements = entitlements({ remainingReports: 0, points: 0 });
+    repository.commitResult = {
+      status: "already_opened",
+      access: access({ accessMethod: "point" })
+    };
+    const service = createService(repository, new FakePointsLedgerService());
+
+    await service.unlock({
+      vehicle: { kind: "vin", vin: VIN },
+      userId: "user-1",
+      guestSessionId: null,
+      idempotencyKey: "unlock-now"
+    });
+
+    expect(repository.commitCalls[0]?.now).toEqual(NOW);
+    expect(repository.entitlementCalls).toEqual([{ userId: "user-1", now: NOW }]);
+  });
+
+  it("does not separately spend when atomic commit cannot grant access", async () => {
+    const repository = new FakeReportAccessRepository();
+    repository.commitResult = { status: "payment_required" };
+    const points = new FakePointsLedgerService();
+    const service = createService(repository, points);
+
+    const result = await service.unlock({
+      vehicle: { kind: "vin", vin: VIN },
+      userId: "user-1",
+      guestSessionId: null,
+      idempotencyKey: "unlock-partial-safe"
+    });
+
+    expect(result).toMatchObject({ status: "payment_required" });
+    expect(repository.decrementCalls).toEqual([]);
+    expect(points.spendCalls).toEqual([]);
+    expect(repository.accesses).toEqual([]);
+  });
+
   it("does not spend twice when an unlock commit is retried with the same idempotency key", async () => {
     const repository = new FakeReportAccessRepository();
-    repository.entitlements = entitlements({ remainingReports: 0, points: 1 });
+    repository.entitlements = entitlements({ remainingReports: 0, points: 0 });
+    repository.commitResults.push(
+      {
+        status: "granted",
+        method: "point",
+        access: access({ accessMethod: "point" })
+      },
+      {
+        status: "already_opened",
+        access: access({ accessMethod: "point" })
+      }
+    );
     const points = new FakePointsLedgerService();
-    points.balanceAfter = 0;
     const service = createService(repository, points);
 
     const first = await service.unlock({
@@ -196,7 +261,7 @@ describe("ReportAccessService", () => {
 
     expect(first).toMatchObject({ status: "granted", method: "point" });
     expect(second).toMatchObject({ status: "granted", method: "already_opened" });
-    expect(points.spendCalls).toHaveLength(1);
+    expect(points.spendCalls).toHaveLength(0);
     expect(repository.accesses).toHaveLength(1);
   });
 
@@ -262,9 +327,13 @@ describe("ReportAccessService", () => {
 
   it("unlocks by vehicleId for search candidates", async () => {
     const repository = new FakeReportAccessRepository();
-    repository.entitlements = entitlements({ remainingReports: 0, points: 1 });
+    repository.entitlements = entitlements({ remainingReports: 0, points: 0 });
+    repository.commitResult = {
+      status: "granted",
+      method: "point",
+      access: access({ accessMethod: "point" })
+    };
     const points = new FakePointsLedgerService();
-    points.balanceAfter = 0;
     const service = createService(repository, points);
 
     const result = await service.unlock({
@@ -280,7 +349,8 @@ describe("ReportAccessService", () => {
       vehicleId: "vehicle-1",
       vin: VIN
     });
-    expect(points.spendCalls[0]?.vehicleId).toBe("vehicle-1");
+    expect(repository.commitCalls[0]?.vehicleId).toBe("vehicle-1");
+    expect(points.spendCalls).toEqual([]);
   });
 });
 
@@ -340,6 +410,15 @@ class FakeReportAccessRepository implements ReportAccessRepository {
   subscriptions: StoredSubscription[] = [];
   entitlements = entitlements();
   decrementCalls: Array<{ subscriptionId: string }> = [];
+  commitCalls: Array<{
+    userId: string;
+    vehicleId: string;
+    idempotencyKey: string;
+    now: Date;
+  }> = [];
+  entitlementCalls: Array<{ userId: string; now: Date }> = [];
+  commitResult: CommitUnlockResult | null = null;
+  commitResults: CommitUnlockResult[] = [];
 
   async findVehicleByVin(vin: string) {
     return this.vehicles.find((vehicle) => vehicle.vin === vin) ?? null;
@@ -406,7 +485,29 @@ class FakeReportAccessRepository implements ReportAccessRepository {
     return created;
   }
 
-  async getEntitlements() {
+  async commitUnlock(input: {
+    userId: string;
+    vehicleId: string;
+    idempotencyKey: string;
+    now: Date;
+  }) {
+    this.commitCalls.push(input);
+    const result = this.commitResults.shift() ?? this.commitResult;
+    if (result !== null) {
+      if (result.status !== "payment_required") {
+        const existing = await this.findVehicleAccess(input);
+        if (existing === null) {
+          this.accesses.push(result.access);
+        }
+      }
+      return result;
+    }
+
+    return { status: "payment_required" as const };
+  }
+
+  async getEntitlements(input: { userId: string; now: Date }) {
+    this.entitlementCalls.push(input);
     return this.entitlements;
   }
 }
