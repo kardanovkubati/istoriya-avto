@@ -55,23 +55,74 @@ export type SearchResultResponse = {
   } | null;
 };
 
+export type ContextResponse = {
+  session: { kind: "guest"; expiresAt: string } | { kind: "user" };
+  account: null | {
+    id: string;
+    primaryContactProvider: "phone" | "telegram" | "max" | null;
+    identities: Array<"phone" | "telegram" | "max">;
+  };
+  entitlements: {
+    plan: null | { code: string; name: string };
+    remainingReports: number;
+    points: number;
+  };
+};
+
 export type UnlockIntentResponse = {
   unlock:
     | {
-        status: "locked";
+        status: "auth_required";
         vinMasked: string;
+        message: string;
+        warning: string;
+        options: ["telegram", "max", "phone"];
+      }
+    | {
+        status: "payment_required";
+        vinMasked: string;
+        message: string;
         options: Array<"upload_report" | "choose_plan">;
         willSpendPoints: false;
-        message: string;
+      }
+    | {
+        status: "ready";
+        vehicleId: string;
+        vinMasked: string;
+        spendOrder: "subscription" | "point";
+        willSpendSubscriptionReport: boolean;
+        willSpendPoints: boolean;
+        pointsBalanceAfter: number;
+        remainingReportsAfter: number;
         warning: string;
       }
     | {
-        status: "granted";
-        method: "already_opened" | "test_override";
+        status: "already_opened";
+        vehicleId: string;
+        vinMasked: string;
+        warning: string;
+      }
+    | {
+        status: "not_found";
       };
 };
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
+
+export async function fetchContext(): Promise<ContextResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/context`, {
+    method: "GET",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error("Не удалось загрузить статус аккаунта.");
+  }
+
+  return response.json() as Promise<ContextResponse>;
+}
+
+export const getContext = fetchContext;
 
 export async function detectSearchQuery(query: string): Promise<SearchDetectionResponse> {
   const response = await fetch(`${API_BASE_URL}/api/search/detect`, {
@@ -112,6 +163,22 @@ export async function createUnlockIntent(vin: string): Promise<UnlockIntentRespo
     method: "POST",
     credentials: "include"
   });
+
+  if (!response.ok) {
+    throw new Error("Не удалось подготовить открытие отчета.");
+  }
+
+  return response.json() as Promise<UnlockIntentResponse>;
+}
+
+export async function createUnlockIntentByVehicleId(vehicleId: string): Promise<UnlockIntentResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/api/vehicles/by-id/${encodeURIComponent(vehicleId)}/unlock-intent`,
+    {
+      method: "POST",
+      credentials: "include"
+    }
+  );
 
   if (!response.ok) {
     throw new Error("Не удалось подготовить открытие отчета.");

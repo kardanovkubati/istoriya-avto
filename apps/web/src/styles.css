@@ -111,6 +111,39 @@ button:focus-visible {
   font-weight: 700;
 }
 
+.account-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  color: var(--ink);
+}
+
+.account-strip span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  max-width: 100%;
+  padding: 5px 9px;
+  overflow-wrap: anywhere;
+  border: 1px solid rgba(20, 33, 29, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 250, 241, 0.78);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.account-strip span:first-child {
+  color: var(--ink);
+}
+
+.account-strip-error span:first-child {
+  color: var(--warning);
+}
+
 .search-section {
   display: grid;
   gap: 22px;
@@ -512,7 +545,16 @@ h1 {
   background: #fff3ed;
 }
 
+.unlock-panel-warning {
+  border-color: rgba(182, 83, 43, 0.22);
+  background: #fff8f0;
+}
+
 .unlock-panel-error svg {
+  color: var(--warning);
+}
+
+.unlock-panel-warning svg {
   color: var(--warning);
 }
 

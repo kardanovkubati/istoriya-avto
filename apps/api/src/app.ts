@@ -2,11 +2,13 @@ import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { db } from "./db/client";
 import { env } from "./env";
+import { DrizzleReportAccessRepository } from "./modules/access/drizzle-report-access-repository";
 import { AccountService, type AccountTransferResult } from "./modules/auth/account-service";
 import { createAuthRoutes } from "./modules/auth/auth-routes";
 import { DrizzleAccountRepository } from "./modules/auth/drizzle-account-repository";
 import { UserSessionService } from "./modules/auth/user-session-service";
 import { createRequestContextMiddleware } from "./modules/context/request-context";
+import { createContextRoutes } from "./modules/context/routes";
 import { DrizzleGuestSessionRepository } from "./modules/guest/drizzle-guest-session-repository";
 import { GuestContextTransferService } from "./modules/guest/guest-context-transfer-service";
 import { GuestSessionService } from "./modules/guest/guest-session-service";
@@ -21,6 +23,7 @@ export type CreateAppOptions = {
   publicWebUrl?: string;
   requestContextMiddleware?: MiddlewareHandler | null;
   authRoutes?: Hono;
+  contextRoutes?: Hono;
   guestContextTransfer?: (input: {
     guestSessionId: string;
     userId: string;
@@ -45,6 +48,7 @@ export function createApp(options: CreateAppOptions = {}) {
   const accountRepository = new DrizzleAccountRepository();
   const userSessionService = new UserSessionService(accountRepository);
   const guestSessionRepository = new DrizzleGuestSessionRepository();
+  const reportAccessRepository = new DrizzleReportAccessRepository(db);
   const pointsLedgerService = new PointsLedgerService({
     repository: new DrizzlePointsLedgerRepository(db)
   });
@@ -78,6 +82,14 @@ export function createApp(options: CreateAppOptions = {}) {
             ((input) => guestContextTransferService.transferToUser(input))
         }),
         secureCookies
+      })
+  );
+  app.route(
+    "/api/context",
+    options.contextRoutes ??
+      createContextRoutes({
+        accountRepository,
+        reportAccessRepository
       })
   );
   app.route("/api/search", searchRoutes);

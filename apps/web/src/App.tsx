@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -13,7 +13,15 @@ import {
   Upload,
   WalletCards
 } from "lucide-react";
-import { createUnlockIntent, searchVehicles, type SearchResultResponse } from "./lib/api";
+import {
+  createUnlockIntent,
+  createUnlockIntentByVehicleId,
+  fetchContext,
+  searchVehicles,
+  type ContextResponse,
+  type SearchResultResponse,
+  type UnlockIntentResponse
+} from "./lib/api";
 
 type SearchState =
   | { status: "idle" }
@@ -21,10 +29,15 @@ type SearchState =
   | { status: "success"; data: SearchResultResponse }
   | { status: "error"; message: string };
 
+type ContextState =
+  | { status: "loading" }
+  | { status: "success"; data: ContextResponse }
+  | { status: "error"; message: string };
+
 type UnlockState =
   | { status: "idle" }
   | { status: "loading"; candidateId: string }
-  | { status: "success"; candidateId: string; message: string; warning: string }
+  | { status: "success"; candidateId: string; unlock: UnlockIntentResponse["unlock"] }
   | { status: "error"; candidateId: string; message: string };
 
 type Candidate = SearchResultResponse["candidates"][number];
@@ -39,9 +52,14 @@ const kindLabels: Record<SearchResultResponse["query"]["kind"], string> = {
 };
 
 const numberFormatter = new Intl.NumberFormat("ru-RU");
+const unlockOptionLabels: Record<"upload_report" | "choose_plan", string> = {
+  upload_report: "Загрузить отчет",
+  choose_plan: "Выбрать тариф"
+};
 
 function App() {
   const [query, setQuery] = useState("");
+  const [contextState, setContextState] = useState<ContextState>({ status: "loading" });
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
   const [unlockState, setUnlockState] = useState<UnlockState>({ status: "idle" });
 
@@ -71,6 +89,29 @@ function App() {
       body: "Мы покажем только безопасные данные превью и предложим следующий шаг."
     };
   }, [searchState]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    fetchContext()
+      .then((data) => {
+        if (isActive) {
+          setContextState({ status: "success", data });
+        }
+      })
+      .catch((error) => {
+        if (isActive) {
+          setContextState({
+            status: "error",
+            message: error instanceof Error ? error.message : "Не удалось загрузить статус аккаунта."
+          });
+        }
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -103,33 +144,23 @@ function App() {
     setUnlockState({ status: "loading", candidateId: candidate.id });
 
     try {
+      const vehicleId = candidate.preview.vehicleId;
+      if (vehicleId !== null) {
+        const data = await createUnlockIntentByVehicleId(vehicleId);
+        setUnlockState({ status: "success", candidateId: candidate.id, unlock: data.unlock });
+        return;
+      }
+
       if (searchState.status === "success" && searchState.data.query.kind === "vin") {
         const data = await createUnlockIntent(searchState.data.query.normalized);
-
-        if (data.unlock.status === "locked") {
-          setUnlockState({
-            status: "success",
-            candidateId: candidate.id,
-            message: data.unlock.message,
-            warning: data.unlock.warning
-          });
-          return;
-        }
-
-        setUnlockState({
-          status: "success",
-          candidateId: candidate.id,
-          message: "Отчет уже открыт для просмотра.",
-          warning: candidate.unlock.warning
-        });
+        setUnlockState({ status: "success", candidateId: candidate.id, unlock: data.unlock });
         return;
       }
 
       setUnlockState({
-        status: "success",
+        status: "error",
         candidateId: candidate.id,
-        message: "Списание баллов и подписочных лимитов появится на следующем этапе.",
-        warning: candidate.unlock.warning
+        message: "Не удалось определить отчет."
       });
     } catch (error) {
       setUnlockState({
@@ -152,6 +183,8 @@ function App() {
           <span>Кабинет</span>
         </button>
       </header>
+
+      <AccountStatusStrip contextState={contextState} />
 
       <section className="search-section" aria-labelledby="search-title">
         <div className="section-copy">
@@ -310,13 +343,7 @@ function CandidateCard({
         </button>
 
         {isCurrentCandidate && unlockState.status === "success" && (
-          <div className="unlock-panel">
-            <WalletCards aria-hidden="true" size={18} />
-            <div>
-              <p>{unlockState.message}</p>
-              <small>{unlockState.warning}</small>
-            </div>
-          </div>
+          <UnlockPanel unlock={unlockState.unlock} fallbackWarning={candidate.unlock.warning} />
         )}
 
         {isCurrentCandidate && unlockState.status === "error" && (
@@ -328,6 +355,106 @@ function CandidateCard({
       </div>
     </article>
   );
+}
+
+function AccountStatusStrip({ contextState }: { contextState: ContextState }) {
+  if (contextState.status === "loading") {
+    return (
+      <section className="account-strip" aria-label="Статус аккаунта">
+        <span>Статус аккаунта</span>
+      </section>
+    );
+  }
+
+  if (contextState.status === "error") {
+    return (
+      <section className="account-strip account-strip-error" aria-label="Статус аккаунта">
+        <span>Статус недоступен</span>
+      </section>
+    );
+  }
+
+  const context = contextState.data;
+
+  if (context.session.kind === "guest") {
+    return (
+      <section className="account-strip" aria-label="Статус аккаунта">
+        <span>Гость до {formatGuestExpiry(context.session.expiresAt)}</span>
+        <span>Войти: Telegram / Max / Телефон</span>
+      </section>
+    );
+  }
+
+  return (
+    <section className="account-strip" aria-label="Статус аккаунта">
+      <span>Тариф: {context.entitlements.plan?.name ?? "нет"}</span>
+      <span>Новые отчеты: {numberFormatter.format(context.entitlements.remainingReports)}</span>
+      <span>Баллы: {numberFormatter.format(context.entitlements.points)}</span>
+    </section>
+  );
+}
+
+function UnlockPanel({
+  unlock,
+  fallbackWarning
+}: {
+  unlock: UnlockIntentResponse["unlock"];
+  fallbackWarning: string;
+}) {
+  const view = unlockView(unlock, fallbackWarning);
+
+  return (
+    <div className={`unlock-panel${view.tone === "warning" ? " unlock-panel-warning" : ""}`}>
+      <WalletCards aria-hidden="true" size={18} />
+      <div>
+        <p>{view.message}</p>
+        {view.detail && <small>{view.detail}</small>}
+      </div>
+    </div>
+  );
+}
+
+function unlockView(
+  unlock: UnlockIntentResponse["unlock"],
+  fallbackWarning: string
+): { message: string; detail: string; tone: "default" | "warning" } {
+  if (unlock.status === "auth_required") {
+    return {
+      message: "Войти: Telegram / Max / Телефон",
+      detail: unlock.warning,
+      tone: "warning"
+    };
+  }
+
+  if (unlock.status === "payment_required") {
+    return {
+      message: unlock.message,
+      detail: unlock.options.map((option) => unlockOptionLabels[option]).join(" / "),
+      tone: "warning"
+    };
+  }
+
+  if (unlock.status === "ready") {
+    return {
+      message: unlock.spendOrder === "subscription" ? "Сначала лимит тарифа" : "Будет списан 1 балл",
+      detail: unlock.warning,
+      tone: "default"
+    };
+  }
+
+  if (unlock.status === "already_opened") {
+    return {
+      message: "Открыт навсегда",
+      detail: "Доступ закреплен за аккаунтом.",
+      tone: "default"
+    };
+  }
+
+  return {
+    message: "Отчет не найден",
+    detail: fallbackWarning,
+    tone: "warning"
+  };
 }
 
 function EmptyState({ state }: { state: SearchResultResponse["emptyState"] }) {
@@ -352,6 +479,15 @@ function formatRub(value: number): string {
 
 function formatKm(value: number): string {
   return `${numberFormatter.format(value)} км`;
+}
+
+function formatGuestExpiry(value: string): string {
+  const datePart = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (datePart === null) {
+    return value;
+  }
+
+  return `${datePart[3]}.${datePart[2]}`;
 }
 
 export default App;

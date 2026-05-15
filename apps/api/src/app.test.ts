@@ -152,6 +152,31 @@ describe("api app", () => {
     expect(transferCalls).toEqual([]);
   });
 
+  it("exposes current context route", async () => {
+    const requestContextMiddleware: MiddlewareHandler = async (context, next) => {
+      context.set(REQUEST_IDENTITY_KEY, {
+        kind: "guest",
+        guestSessionId: "guest-1",
+        expiresAt: new Date("2026-05-21T10:00:00.000Z")
+      });
+      await next();
+    };
+    const app = createApp({ requestContextMiddleware });
+
+    const response = await app.request("/api/context");
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      session: { kind: "guest", expiresAt: "2026-05-21T10:00:00.000Z" },
+      account: null,
+      entitlements: {
+        plan: null,
+        remainingReports: 0,
+        points: 0
+      }
+    });
+  });
+
   it("allows browser calls from localhost and 127.0.0.1 dev origins", async () => {
     for (const origin of ["http://localhost:5173", "http://127.0.0.1:5173"]) {
       const preflightResponse = await app.request("/api/search/detect", {
