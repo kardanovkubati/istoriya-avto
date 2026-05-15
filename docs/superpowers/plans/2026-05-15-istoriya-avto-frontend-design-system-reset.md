@@ -1,39 +1,45 @@
-# Frontend Design System Reset Implementation Plan
+# План перезапуска frontend design system
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Для агентной реализации:** обязательный режим перед выполнением - `superpowers:subagent-driven-development` или `superpowers:executing-plans`. План выполняется маленькими задачами с чекбоксами (`- [ ]`) и review gate после каждого шага.
 
-**Goal:** Replace the current handmade Milestone 5 frontend implementation with a serious product-grade frontend foundation based on Tailwind CSS, shadcn/ui primitives, feature modules, and explicit design-system boundaries.
+**Цель:** заменить текущую handmade frontend-реализацию Milestone 5 на серьезную продуктовую основу: Tailwind CSS, shadcn/ui primitives, feature-модули и явные границы дизайн-системы.
 
-**Architecture:** Keep the Milestone 5 backend API work for full report, share links, and PDF export. Rebuild only the frontend layer so `App.tsx` becomes routing/composition, feature state lives in hooks, UI primitives live in `components/ui`, and product flows live under `features/*`. Tailwind/shadcn become the default UI foundation for all serious product surfaces.
+**Важно:** этот документ пока фиксирует архитектурный reset и технический способ привести frontend в порядок. Визуальное направление продукта должно быть согласовано отдельно до начала реализации: через вопросы, варианты подхода и утвержденную design spec.
 
-**Tech Stack:** React, Vite, TypeScript, Tailwind CSS, shadcn/ui, lucide-react, Bun, existing API client contracts.
+**Архитектура:** backend Milestone 5 для полного отчета, share links и PDF export оставляем как есть. Перестраиваем только frontend-слой: `App.tsx` становится уровнем маршрутизации/композиции, feature state живет в hooks, UI primitives живут в `components/ui`, а продуктовые сценарии - в `features/*`. Tailwind/shadcn становятся базовой frontend-основой для серьезных продуктовых поверхностей.
+
+**Стек:** React, Vite, TypeScript, Tailwind CSS, shadcn/ui, lucide-react, Bun, существующие API contracts.
 
 ---
 
-## Why This Reset Exists
+## Почему нужен reset
 
-The first Milestone 5 frontend was implemented too quickly. It made the product flow visible, but it did not establish the frontend architecture expected for a serious product:
+Первая frontend-реализация Milestone 5 была сделана слишком быстро. Она показала продуктовый сценарий, но не заложила архитектуру, которую ожидаешь от серьезного продукта:
 
-- too much responsibility accumulated in `App.tsx`;
-- UI primitives were handmade instead of standardized;
-- no formal design-system boundary existed;
-- full report/search/share components were split only after review feedback, not designed up front;
-- Tailwind + shadcn/ui were not discussed before building the new product surface.
+- слишком много ответственности оказалось в `App.tsx`;
+- UI primitives были сделаны вручную вместо стандартизированной основы;
+- не было явной границы дизайн-системы;
+- компоненты full report/search/share были разделены постфактум, а не спроектированы заранее;
+- Tailwind + shadcn/ui не были обсуждены до сборки новой продуктовой поверхности.
 
-This reset treats frontend as product infrastructure, not demo code.
+Этот reset рассматривает frontend как продуктовую инфраструктуру, а не demo-код.
 
-## Non-Negotiables
+## Нельзя менять без обсуждения
 
-- Do not change approved product logic.
-- Keep backend Milestone 5 API behavior unless a bug is discovered and tested.
-- Do not expose full report data without access.
-- Do not show third-party service names as fact sources.
-- Do not store or render personal data about people in user-facing report UI.
-- Use Tailwind + shadcn/ui for serious frontend surfaces.
-- Do not build another large god component.
-- Do not start implementation until this plan is accepted.
+- Не менять утвержденную продуктовую логику.
+- Не менять backend API Milestone 5, кроме случаев, когда найден и покрыт тестом баг.
+- Не раскрывать full report без доступа.
+- Не показывать названия сторонних сервисов как источники конкретных фактов.
+- Не хранить и не рендерить персональные данные людей в пользовательском отчете.
+- Использовать Tailwind + shadcn/ui для серьезных frontend поверхностей.
+- Не собирать новый большой god component.
+- Не начинать реализацию, пока не утверждены:
+  - визуальное направление;
+  - UX-flow;
+  - component boundaries;
+  - этот implementation plan.
 
-## Target Structure
+## Целевая структура
 
 ```text
 apps/web/src
@@ -79,33 +85,54 @@ apps/web/src
 └── main.tsx
 ```
 
-## Design Direction
+## Визуальное направление: не утверждено
 
-The product is an operational decision tool for used-car purchase checks. The UI should feel:
+Дизайн еще нельзя считать выбранным, потому что не были заданы вопросы владельцу продукта. Предварительная гипотеза для обсуждения:
 
-- serious;
-- dense enough for repeated analysis;
-- calm and legible;
-- mobile-first but not “landing page” oriented;
-- closer to a professional report/workbench than a marketing site.
+- продукт - рабочий инструмент для проверки автомобиля перед покупкой;
+- интерфейс должен быть серьезным, спокойным и читаемым;
+- отчет должен ощущаться как профессиональный dossier/workbench, а не как landing page;
+- мобильный сценарий важен, но desktop также должен быть удобен для внимательного анализа;
+- визуальная система должна помогать быстро понять риск, статус доступа, остатки лимита/баллов и действия по отчету.
 
-Avoid:
+Перед реализацией нужно выбрать один из подходов:
 
-- oversized hero-only composition for app flows;
-- decorative gradient/orb backgrounds;
-- one-off custom controls where shadcn primitives fit;
-- verbose explanatory in-app text about how the app works;
-- card-inside-card layouts.
+1. **Операционный кабинет.** Плотная, спокойная, таблично-секционная подача. Лучше для регулярного использования и доверия.
+2. **Премиальный отчет.** Более editorial presentation, крупнее типографика, отчет выглядит как ценный документ. Лучше для first impression и PDF/share.
+3. **Диагностический workbench.** Сильнее акцент на risk signals, timeline, unlock/access state и быстрые решения. Лучше для практической проверки перед покупкой.
 
-Use:
+Моя предварительная рекомендация: гибрид `Операционный кабинет + Премиальный отчет`. Поиск и account/status должны быть спокойными и рабочими, а full report - выглядеть как качественный документ, который не стыдно отправить покупателю/партнеру.
+
+Избегать:
+
+- oversized hero-only composition для app flow;
+- декоративных gradient/orb backgrounds;
+- one-off custom controls там, где подходят shadcn primitives;
+- длинных объясняющих текстов внутри интерфейса;
+- card-inside-card layouts;
+- визуальной “игрушечности” и demo-ощущения.
+
+Использовать:
 
 - shadcn buttons, badges, tabs/sheets/dialogs/skeletons;
-- restrained report sections;
-- predictable action placement;
-- sticky or easily reachable report actions on mobile;
-- clear empty/loading/error states.
+- сдержанные report sections;
+- предсказуемое место для действий;
+- sticky или легко доступные actions на mobile;
+- понятные empty/loading/error states;
+- отдельную визуальную систему для severity/status: спокойно, без крикливости.
 
-## Task 1: Install Tailwind And shadcn Foundation
+## Вопросы перед реализацией
+
+Перед Task 1 нужно получить ответы хотя бы на эти вопросы:
+
+- Кто главный пользователь первой версии: частный покупатель, перекуп/дилер, автоподборщик или смешанный сценарий?
+- Какой тон бренда нужен: строгий государственно-реестровый, премиальный экспертный, техничный диагностический или дружелюбный consumer?
+- Что должно быть главным первым экраном: поиск по VIN/госномеру, список найденных авто, unlock screen или личный кабинет/статус доступа?
+- Full report должен выглядеть ближе к dashboard, PDF-документу или расследовательскому dossier?
+- Нужно ли проектировать mobile-first как основной сценарий или desktop для аналитики равнозначен?
+- Какие 2-3 продукта/сервиса визуально нравятся как ориентир, а какие точно не нравятся?
+
+## Task 1: Установить Tailwind и shadcn foundation
 
 **Files:**
 - Modify: `apps/web/package.json`
@@ -113,17 +140,17 @@ Use:
 - Create: `apps/web/src/index.css`
 - Create: `apps/web/components.json`
 - Create: `apps/web/tailwind.config.ts`
-- Modify: `apps/web/vite.config.ts` if path aliases require it
+- Modify: `apps/web/vite.config.ts`, если нужен path alias
 
-- [ ] Add Tailwind, PostCSS/autoprefixer if needed, `class-variance-authority`, `clsx`, `tailwind-merge`, `tailwindcss-animate`.
-- [ ] Configure `@/*` alias for `apps/web/src`.
-- [ ] Add `cn()` helper in `apps/web/src/lib/utils.ts`.
-- [ ] Add base CSS variables for shadcn theme.
-- [ ] Run `bun run --cwd apps/web typecheck`.
-- [ ] Run `bun run --cwd apps/web build`.
+- [ ] Добавить Tailwind, PostCSS/autoprefixer при необходимости, `class-variance-authority`, `clsx`, `tailwind-merge`, `tailwindcss-animate`.
+- [ ] Настроить alias `@/*` на `apps/web/src`.
+- [ ] Добавить helper `cn()` в `apps/web/src/lib/utils.ts`.
+- [ ] Добавить базовые CSS variables для shadcn theme.
+- [ ] Запустить `bun run --cwd apps/web typecheck`.
+- [ ] Запустить `bun run --cwd apps/web build`.
 - [ ] Commit: `chore: add tailwind shadcn foundation`.
 
-## Task 2: Add shadcn UI Primitives
+## Task 2: Добавить shadcn UI primitives
 
 **Files:**
 - Create: `apps/web/src/components/ui/button.tsx`
@@ -135,76 +162,76 @@ Use:
 - Create: `apps/web/src/components/ui/skeleton.tsx`
 - Create: `apps/web/src/components/ui/tabs.tsx`
 
-- [ ] Add only primitives needed by current flows.
-- [ ] Do not add a large component dump.
-- [ ] Confirm imports use `@/components/ui/*`.
-- [ ] Run web typecheck/build.
+- [ ] Добавить только primitives, которые нужны текущим flow.
+- [ ] Не добавлять большой component dump.
+- [ ] Проверить, что imports используют `@/components/ui/*`.
+- [ ] Запустить web typecheck/build.
 - [ ] Commit: `chore: add frontend ui primitives`.
 
-## Task 3: Move Search Flow Into Feature Module
+## Task 3: Перенести search flow в feature module
 
 **Files:**
-- Create/modify files under `apps/web/src/features/search`
+- Create/modify files в `apps/web/src/features/search`
 - Modify: `apps/web/src/app/App.tsx`
 
-- [ ] Move search state orchestration into `useSearchFlow.ts`.
-- [ ] Move presentational search UI into `SearchPage.tsx`, `SearchResults.tsx`, `CandidateCard.tsx`, `UnlockPanel.tsx`.
-- [ ] Use shadcn `Button`, `Badge`, `Skeleton` where applicable.
-- [ ] Keep candidate unlock behavior identical.
-- [ ] Run web typecheck/build.
+- [ ] Перенести orchestration состояния поиска в `useSearchFlow.ts`.
+- [ ] Перенести presentational UI в `SearchPage.tsx`, `SearchResults.tsx`, `CandidateCard.tsx`, `UnlockPanel.tsx`.
+- [ ] Использовать shadcn `Button`, `Badge`, `Skeleton` там, где они подходят.
+- [ ] Сохранить текущее поведение candidate unlock.
+- [ ] Запустить web typecheck/build.
 - [ ] Commit: `refactor: move search flow into feature module`.
 
-## Task 4: Move Full Report And Share Into Feature Module
+## Task 4: Перенести full report и share в feature module
 
 **Files:**
-- Create/modify files under `apps/web/src/features/report`
+- Create/modify files в `apps/web/src/features/report`
 - Modify: `apps/web/src/app/App.tsx`
 
-- [ ] Move report orchestration into `useReportView.ts`.
-- [ ] Split owner and share entry points: `FullReportPage.tsx`, `ShareReportPage.tsx`.
-- [ ] Use shared `ReportHero`, `ReportActions`, `ReportSection`.
-- [ ] Preserve `noindex,nofollow` behavior.
-- [ ] Preserve share mode restrictions: no PDF, no resharing.
-- [ ] Run web typecheck/build.
+- [ ] Перенести orchestration отчета в `useReportView.ts`.
+- [ ] Разделить owner и share entry points: `FullReportPage.tsx`, `ShareReportPage.tsx`.
+- [ ] Использовать общие `ReportHero`, `ReportActions`, `ReportSection`.
+- [ ] Сохранить поведение `noindex,nofollow`.
+- [ ] Сохранить ограничения share mode: без PDF и без resharing.
+- [ ] Запустить web typecheck/build.
 - [ ] Commit: `refactor: move report flow into feature module`.
 
-## Task 5: Replace Handmade CSS With Tailwind Classes
+## Task 5: Заменить handmade CSS на Tailwind classes
 
 **Files:**
 - Modify/remove: `apps/web/src/styles.css`
 - Modify: feature/components files
 
-- [ ] Replace broad handmade CSS with Tailwind/shadcn styling.
-- [ ] Keep only global theme/base rules in `index.css`.
-- [ ] Avoid page-level CSS selectors for feature internals.
-- [ ] Ensure responsive layouts do not overlap at mobile widths.
-- [ ] Run web build.
+- [ ] Заменить широкий handmade CSS на Tailwind/shadcn styling.
+- [ ] Оставить в `index.css` только global theme/base rules.
+- [ ] Избегать page-level CSS selectors для feature internals.
+- [ ] Проверить, что responsive layouts не перекрываются на mobile widths.
+- [ ] Запустить web build.
 - [ ] Commit: `refactor: replace handmade frontend css`.
 
-## Task 6: Verification And Review
+## Task 6: Verification and review
 
 **Files:**
-- No broad production changes unless verification reveals issues.
+- Без broad production changes, кроме исправлений, найденных в verification.
 
-- [ ] Run `bun run test`.
-- [ ] Run `bun run typecheck`.
-- [ ] Run `bun run --cwd apps/web build`.
-- [ ] If schema untouched, do not run db generate unless final checklist requires it.
-- [ ] Run local browser smoke after Docker/local server is available.
-- [ ] Review for:
-  - no god components;
-  - feature boundaries;
-  - shadcn primitives used consistently;
-  - full report still locked without access;
-  - share mode cannot PDF/reshare;
-  - source-brand leak guards unchanged.
-- [ ] Commit final fixes if needed.
+- [ ] Запустить `bun run test`.
+- [ ] Запустить `bun run typecheck`.
+- [ ] Запустить `bun run --cwd apps/web build`.
+- [ ] Если schema не менялась, не запускать db generate, кроме случаев, когда финальный checklist требует это явно.
+- [ ] Запустить local browser smoke, когда доступен Docker/local server.
+- [ ] Проверить:
+  - нет god components;
+  - feature boundaries соблюдены;
+  - shadcn primitives используются последовательно;
+  - full report остается закрытым без доступа;
+  - share mode не может PDF/reshare;
+  - source-brand leak guards не изменились.
+- [ ] Закоммитить финальные исправления, если нужны.
 
-## Acceptance Criteria
+## Acceptance criteria
 
-- `App.tsx` is only composition/routing/orchestration.
-- Search and report flows live in `features/*`.
-- UI primitives live in `components/ui`.
-- Tailwind + shadcn are the frontend foundation.
-- No product behavior regression from Milestone 5 backend/API.
-- Required checks pass.
+- `App.tsx` - только composition/routing/orchestration.
+- Search и report flows живут в `features/*`.
+- UI primitives живут в `components/ui`.
+- Tailwind + shadcn являются frontend foundation.
+- Нет регрессии продуктового поведения Milestone 5 backend/API.
+- Required checks проходят.
