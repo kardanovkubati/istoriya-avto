@@ -118,6 +118,76 @@ export type UnlockCommitResponse = {
   entitlements: ContextResponse["entitlements"];
 };
 
+export type ReportPresentation = {
+  generatedAt: string;
+  noindex: true;
+  disclaimer: string;
+  watermark: string;
+  actions: { canShare: boolean; canDownloadPdf: boolean };
+  sections: Array<{
+    id:
+      | "summary"
+      | "passport"
+      | "legal_risks"
+      | "accidents_repairs"
+      | "mileage"
+      | "owners_registrations"
+      | "listings"
+      | "commercial_use"
+      | "maintenance"
+      | "data_quality"
+      | "update_history";
+    title: string;
+    critical: boolean;
+    state: "ready" | "empty";
+    emptyText?: "данных не найдено на дату обновления";
+    items: Array<{
+      label: string;
+      value: string;
+      tone?: "default" | "good" | "warning" | "danger";
+      date?: string | null;
+    }>;
+  }>;
+};
+
+export type VehicleFullReportResponse = {
+  report: {
+    vehicleId: string;
+    vin: string;
+    generatedAt: string;
+    summary: {
+      historyBasisText: string;
+      sourceUploadCount: number;
+      lastUpdatedAt: string | null;
+      freshnessWarning: string | null;
+      transparency:
+        | { kind: "score"; value: number; max: 5; label: string }
+        | { kind: "insufficient_data"; message: string; reasons: string[] };
+    };
+    passport: {
+      vin: string;
+      make: string | null;
+      model: string | null;
+      year: number | null;
+      bodyType: string | null;
+      color: string | null;
+      engine: string | null;
+      transmission: string | null;
+      driveType: string | null;
+    };
+  };
+  presentation: ReportPresentation;
+  share?: { expiresAt: string };
+};
+
+export type CreateShareLinkResponse = {
+  share: {
+    token: string;
+    url: string;
+    expiresAt: string;
+  };
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001";
 
 export async function fetchContext(): Promise<ContextResponse> {
@@ -228,4 +298,47 @@ export async function unlockVehicleReport(input: {
   }
 
   return response.json() as Promise<UnlockCommitResponse>;
+}
+
+export async function fetchFullReportByVehicleId(vehicleId: string): Promise<VehicleFullReportResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/vehicles/by-id/${encodeURIComponent(vehicleId)}/report`, {
+    method: "GET",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error("Не удалось загрузить полный отчет.");
+  }
+
+  return response.json() as Promise<VehicleFullReportResponse>;
+}
+
+export async function createShareLink(vehicleId: string): Promise<CreateShareLinkResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/vehicles/by-id/${encodeURIComponent(vehicleId)}/share-links`, {
+    method: "POST",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error("Не удалось создать share-ссылку.");
+  }
+
+  return response.json() as Promise<CreateShareLinkResponse>;
+}
+
+export async function fetchSharedReport(token: string): Promise<VehicleFullReportResponse> {
+  const response = await fetch(`${API_BASE_URL}/api/share/${encodeURIComponent(token)}/report`, {
+    method: "GET",
+    credentials: "include"
+  });
+
+  if (!response.ok) {
+    throw new Error("Ссылка недоступна или срок действия истек.");
+  }
+
+  return response.json() as Promise<VehicleFullReportResponse>;
+}
+
+export function reportPdfUrl(vehicleId: string): string {
+  return `${API_BASE_URL}/api/vehicles/by-id/${encodeURIComponent(vehicleId)}/report.pdf`;
 }

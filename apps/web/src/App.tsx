@@ -4,25 +4,36 @@ import {
   BadgeCheck,
   Bell,
   CarFront,
+  ChevronLeft,
+  Download,
+  ExternalLink,
   FileUp,
   Gauge,
   LockKeyhole,
   MapPin,
   ReceiptText,
   Search,
+  Share2,
   Upload,
   WalletCards
 } from "lucide-react";
 import {
+  createShareLink,
   createUnlockIntent,
   createUnlockIntentByVehicleId,
   fetchContext,
+  fetchFullReportByVehicleId,
+  fetchSharedReport,
+  reportPdfUrl,
   searchVehicles,
   unlockVehicleReport,
   type ContextResponse,
+  type CreateShareLinkResponse,
+  type ReportPresentation,
   type SearchResultResponse,
   type UnlockCommitResponse,
-  type UnlockIntentResponse
+  type UnlockIntentResponse,
+  type VehicleFullReportResponse
 } from "./lib/api";
 
 type SearchState =
@@ -47,6 +58,18 @@ type UnlockStates = Record<string, CandidateUnlockState>;
 
 type Candidate = SearchResultResponse["candidates"][number];
 
+type ReportViewState =
+  | { status: "closed" }
+  | { status: "loading"; vehicleId: string }
+  | { status: "ready"; vehicleId: string; data: VehicleFullReportResponse; mode: "owner" | "share" }
+  | { status: "error"; vehicleId: string | null; message: string };
+
+type ShareState =
+  | { status: "idle" }
+  | { status: "creating" }
+  | { status: "ready"; share: CreateShareLinkResponse["share"] }
+  | { status: "error"; message: string };
+
 const examples = ["A123BC777", "XTA210990Y2765432", "https://site.ru/listing/123456"];
 
 const kindLabels: Record<SearchResultResponse["query"]["kind"], string> = {
@@ -67,6 +90,8 @@ function App() {
   const [contextState, setContextState] = useState<ContextState>({ status: "loading" });
   const [searchState, setSearchState] = useState<SearchState>({ status: "idle" });
   const [unlockStates, setUnlockStates] = useState<UnlockStates>({});
+  const [reportView, setReportView] = useState<ReportViewState>({ status: "closed" });
+  const [shareState, setShareState] = useState<ShareState>({ status: "idle" });
   const searchRunIdRef = useRef(0);
 
   const trimmedQuery = query.trim();
@@ -95,6 +120,31 @@ function App() {
       body: "Мы покажем только безопасные данные превью и предложим следующий шаг."
     };
   }, [searchState]);
+
+  useEffect(() => {
+    const token = shareTokenFromHash();
+    if (token === null) return;
+
+    setReportView({ status: "loading", vehicleId: "share" });
+    fetchSharedReport(token)
+      .then((data) => {
+        setReportView({ status: "ready", vehicleId: data.report.vehicleId, data, mode: "share" });
+      })
+      .catch((error) => {
+        setReportView({
+          status: "error",
+          vehicleId: null,
+          message: error instanceof Error ? error.message : "Ссылка недоступна."
+        });
+      });
+  }, []);
+
+  useEffect(() => {
+    const robots = ensureRobotsMeta();
+    if (reportView.status === "ready" || reportView.status === "loading") {
+      robots.setAttribute("content", "noindex,nofollow");
+    }
+  }, [reportView.status]);
 
   useEffect(() => {
     let isActive = true;
@@ -173,6 +223,7 @@ function App() {
           ...current,
           [candidate.id]: { status: "unlocked", warning: getUnlockWarning(data.unlock) }
         }));
+        void openFullReport(data.unlock.vehicleId);
         return;
       }
 
@@ -236,6 +287,7 @@ function App() {
       }
 
       applyUnlockedEntitlements(unlockResult);
+      void openFullReport(unlockResult.access.vehicleId);
 
       setUnlockStates((current) => ({
         ...current,
@@ -283,6 +335,88 @@ function App() {
     } catch {
       // The unlock commit already succeeded; keep the committed entitlements visible.
     }
+  }
+
+  async function openFullReport(vehicleId: string) {
+    setShareState({ status: "idle" });
+    setReportView({ status: "loading", vehicleId });
+
+    try {
+      const data = await fetchFullReportByVehicleId(vehicleId);
+      setReportView({ status: "ready", vehicleId, data, mode: "owner" });
+    } catch (error) {
+      setReportView({
+        status: "error",
+        vehicleId,
+        message: error instanceof Error ? error.message : "Не удалось загрузить полный отчет."
+      });
+    }
+  }
+
+  async function handleCreateShare(vehicleId: string) {
+    setShareState({ status: "creating" });
+
+    try {
+      const share = await createShareLink(vehicleId);
+      setShareState({ status: "ready", share: share.share });
+    } catch (error) {
+      setShareState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Не удалось создать share-ссылку."
+      });
+    }
+  }
+
+  function handleDownloadPdf(vehicleId: string) {
+    window.location.assign(reportPdfUrl(vehicleId));
+  }
+
+  if (reportView.status !== "closed") {
+    return (
+      <main className="app-shell report-app-shell">
+        <header className="topbar" aria-label="Основная навигация">
+          <a className="brand" href="/" aria-label="История Авто">
+            <span className="brand-mark">ИА</span>
+            <span>История Авто</span>
+          </a>
+          {reportView.status === "ready" && reportView.mode === "share" ? (
+            <span className="account-pill">Share</span>
+          ) : (
+            <button className="account-pill" type="button" onClick={() => setReportView({ status: "closed" })}>
+              <ChevronLeft aria-hidden="true" size={16} />
+              <span>К поиску</span>
+            </button>
+          )}
+        </header>
+
+        {reportView.status === "loading" && (
+          <section className="status-panel status-loading" aria-live="polite">
+            <span>Отчет</span>
+            <h1>Собираем полный отчет</h1>
+            <p>Проверяем доступ и готовим сводные разделы.</p>
+          </section>
+        )}
+
+        {reportView.status === "error" && (
+          <section className="status-panel status-error" aria-live="polite">
+            <span>Отчет</span>
+            <h1>Не удалось открыть отчет</h1>
+            <p>{reportView.message}</p>
+          </section>
+        )}
+
+        {reportView.status === "ready" && (
+          <FullReportScreen
+            data={reportView.data}
+            mode={reportView.mode}
+            shareState={shareState}
+            onBack={() => setReportView({ status: "closed" })}
+            onShare={() => handleCreateShare(reportView.vehicleId)}
+            onDownloadPdf={() => handleDownloadPdf(reportView.vehicleId)}
+          />
+        )}
+      </main>
+    );
   }
 
   return (
@@ -393,6 +527,127 @@ function App() {
         </article>
       </section>
     </main>
+  );
+}
+
+function FullReportScreen({
+  data,
+  mode,
+  shareState,
+  onBack,
+  onShare,
+  onDownloadPdf
+}: {
+  data: VehicleFullReportResponse;
+  mode: "owner" | "share";
+  shareState: ShareState;
+  onBack: () => void;
+  onShare: () => void;
+  onDownloadPdf: () => void;
+}) {
+  const title = reportTitle(data);
+  const score = data.report.summary.transparency;
+
+  return (
+    <section className="report-screen" aria-labelledby="full-report-title">
+      <div className="report-toolbar">
+        <button type="button" onClick={onBack}>
+          <ChevronLeft aria-hidden="true" size={17} />
+          <span>{mode === "share" ? "На главную" : "К поиску"}</span>
+        </button>
+        {data.presentation.actions.canShare && (
+          <button type="button" onClick={onShare} disabled={shareState.status === "creating"}>
+            <Share2 aria-hidden="true" size={17} />
+            <span>{shareState.status === "creating" ? "Создаем" : "Ссылка"}</span>
+          </button>
+        )}
+        {data.presentation.actions.canDownloadPdf && (
+          <button type="button" onClick={onDownloadPdf}>
+            <Download aria-hidden="true" size={17} />
+            <span>PDF</span>
+          </button>
+        )}
+      </div>
+
+      <div className="report-hero">
+        <p className="eyebrow">{mode === "share" ? "Отчет по share-ссылке" : "Открытый отчет"}</p>
+        <h1 id="full-report-title">{title}</h1>
+        <div className="report-hero-grid">
+          <div>
+            <span>VIN</span>
+            <strong>{data.report.vin}</strong>
+          </div>
+          <div>
+            <span>Оценка</span>
+            <strong>
+              {score.kind === "score" ? `${score.value} / ${score.max}` : "Недостаточно данных"}
+            </strong>
+          </div>
+          <div>
+            <span>Обновление</span>
+            <strong>{formatDate(data.report.summary.lastUpdatedAt ?? data.report.generatedAt)}</strong>
+          </div>
+        </div>
+        <p>{data.report.summary.historyBasisText}</p>
+        {data.report.summary.freshnessWarning && (
+          <p className="report-warning">{data.report.summary.freshnessWarning}</p>
+        )}
+      </div>
+
+      {shareState.status === "ready" && (
+        <div className="share-result">
+          <ExternalLink aria-hidden="true" size={18} />
+          <div>
+            <p>{shareState.share.url}</p>
+            <small>Действует до {formatDate(shareState.share.expiresAt)}</small>
+          </div>
+        </div>
+      )}
+      {shareState.status === "error" && <p className="report-warning">{shareState.message}</p>}
+
+      <div className="report-section-list">
+        {data.presentation.sections.map((section) => (
+          <ReportSection key={section.id} section={section} />
+        ))}
+      </div>
+
+      <footer className="report-footer">
+        <p>{data.presentation.disclaimer}</p>
+        <small>{data.presentation.watermark}</small>
+        {mode === "share" && data.share && <small>Share действует до {formatDate(data.share.expiresAt)}</small>}
+      </footer>
+    </section>
+  );
+}
+
+function ReportSection({ section }: { section: ReportPresentation["sections"][number] }) {
+  const toneClass = section.items.some((item) => item.tone === "danger")
+    ? " report-section-danger"
+    : section.items.some((item) => item.tone === "warning")
+      ? " report-section-warning"
+      : "";
+
+  return (
+    <article className={`report-section${toneClass}`}>
+      <div className="report-section-heading">
+        <h2>{section.title}</h2>
+        {section.critical && <span>Критичный блок</span>}
+      </div>
+
+      {section.state === "empty" ? (
+        <p className="report-empty">{section.emptyText ?? "Данных нет"}</p>
+      ) : (
+        <dl className="report-fact-list">
+          {section.items.map((item) => (
+            <div className={`report-fact report-fact-${item.tone ?? "default"}`} key={`${item.label}:${item.value}`}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+              {item.date && <small>{formatDate(item.date)}</small>}
+            </div>
+          ))}
+        </dl>
+      )}
+    </article>
   );
 }
 
@@ -636,6 +891,42 @@ function formatGuestExpiry(value: string): string {
   }
 
   return `${datePart[3]}.${datePart[2]}`;
+}
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC" }).format(date);
+}
+
+function reportTitle(data: VehicleFullReportResponse): string {
+  return [data.report.passport.make, data.report.passport.model, data.report.passport.year]
+    .filter((value) => value !== null && value !== undefined)
+    .join(" ") || "Автомобиль";
+}
+
+function shareTokenFromHash(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const match = /^#\/share\/([^/?#]+)/.exec(window.location.hash);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function ensureRobotsMeta(): HTMLMetaElement {
+  const existing = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+  if (existing !== null) {
+    return existing;
+  }
+
+  const meta = document.createElement("meta");
+  meta.setAttribute("name", "robots");
+  document.head.append(meta);
+  return meta;
 }
 
 function unlockButtonLabel(candidate: Candidate, unlockState?: CandidateUnlockState): string {
