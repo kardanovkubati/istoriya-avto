@@ -295,6 +295,88 @@ describe("vehicle routes", () => {
     });
   });
 
+  it("returns vehicleId and masked VIN for by-id auth_required commits without returning full VIN", async () => {
+    const accessService = new FakeAccessService();
+    accessService.commitResult = {
+      status: "auth_required",
+      vehicleId: "vehicle-1",
+      vinMasked: "XTA2109********99",
+      options: ["telegram", "max", "phone"],
+      message: "Войдите, чтобы закрепить доступ к отчету.",
+      warning:
+        "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+    };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, guestIdentity());
+
+    const response = await routes.request("/api/vehicles/by-id/vehicle-1/unlock", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: "unlock:guest:vehicle-1" })
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(401);
+    expect(body).toEqual({
+      error: {
+        code: "auth_required",
+        message: "Войдите, чтобы открыть полный отчет.",
+        unlock: {
+          status: "auth_required",
+          vehicleId: "vehicle-1",
+          vinMasked: "XTA2109********99",
+          options: ["telegram", "max", "phone"],
+          message: "Войдите, чтобы закрепить доступ к отчету.",
+          warning:
+            "Перед открытием проверьте, что выбран нужный автомобиль. Если выбрать другой автомобиль, балл не возвращается."
+        }
+      }
+    });
+    expect(JSON.stringify(body)).not.toContain(VALID_VIN);
+  });
+
+  it("returns vehicleId and masked VIN for by-id payment_required commits without returning full VIN", async () => {
+    const accessService = new FakeAccessService();
+    accessService.commitResult = {
+      status: "payment_required",
+      vehicleId: "vehicle-1",
+      vinMasked: "XTA2109********99",
+      options: ["upload_report", "choose_plan"],
+      willSpendPoints: false,
+      message: "Загрузите отчет или выберите тариф, чтобы открыть полный отчет."
+    };
+    const dependencies = createDependencies({
+      accessService: accessService as unknown as ReportAccessService
+    });
+    const routes = createTestApp(dependencies, userIdentity());
+
+    const response = await routes.request("/api/vehicles/by-id/vehicle-1/unlock", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ idempotencyKey: "unlock:user-1:vehicle-1" })
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(402);
+    expect(body).toEqual({
+      error: {
+        code: "payment_required",
+        message: "Загрузите отчет или выберите тариф, чтобы открыть полный отчет.",
+        unlock: {
+          status: "payment_required",
+          vehicleId: "vehicle-1",
+          vinMasked: "XTA2109********99",
+          options: ["upload_report", "choose_plan"],
+          willSpendPoints: false,
+          message: "Загрузите отчет или выберите тариф, чтобы открыть полный отчет."
+        }
+      }
+    });
+    expect(JSON.stringify(body)).not.toContain(VALID_VIN);
+  });
+
   it("rejects invalid VIN before repository lookup", async () => {
     const dependencies = createDependencies();
     const routes = createTestApp(dependencies);

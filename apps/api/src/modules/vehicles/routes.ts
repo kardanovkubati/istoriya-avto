@@ -277,7 +277,7 @@ function unlockCommitResponse(
         error: {
           code: "auth_required",
           message: "Войдите, чтобы открыть полный отчет.",
-          unlock: withoutVehicleId(result)
+          unlock: serializeUnlockError(result, options)
         }
       },
       401
@@ -290,7 +290,7 @@ function unlockCommitResponse(
         error: {
           code: "payment_required",
           message: result.message,
-          unlock: withoutVehicleId(result)
+          unlock: serializeUnlockError(result, options)
         }
       },
       402
@@ -323,4 +323,11 @@ function withoutVehicleId<
     return rest;
   }
   return result;
+}
+
+function serializeUnlockError(
+  result: Extract<UnlockCommitDecision, { status: "auth_required" | "payment_required" }>,
+  options: { includeVin: boolean }
+) {
+  return options.includeVin ? withoutVehicleId(result) : result;
 }
