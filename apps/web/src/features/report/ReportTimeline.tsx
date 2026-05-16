@@ -24,10 +24,10 @@ export function ReportTimeline({ section }: { section: ReportSection | undefined
 
         {items.length > 0 ? (
           <div className="grid gap-3">
-            {items.map((item) => (
+            {items.map((item, index) => (
               <div
                 className="grid gap-2 border-l-4 border-slate-400 bg-muted/40 p-3 sm:grid-cols-[140px_minmax(0,1fr)]"
-                key={`${item.label}:${item.value}:${item.date ?? "no-date"}`}
+                key={`${item.label}:${item.value}:${item.date ?? "no-date"}:${index}`}
               >
                 <time className="text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
                   {item.date ? formatDate(item.date) : item.label}

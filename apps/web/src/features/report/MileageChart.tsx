@@ -62,18 +62,18 @@ export function MileageChart({ section }: { section: ReportSection | undefined }
                   {points.length > 1 && (
                     <polyline fill="none" points={polylinePoints} stroke="#1f2937" strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" />
                   )}
-                  {points.map((point) => (
+                  {points.map((point, index) => (
                     <circle
                       cx={point.cx}
                       cy={point.cy}
                       fill={point.item.tone === "warning" ? "#d97706" : "#1f2937"}
-                      key={`${point.item.label}:${point.item.value}:${point.item.date ?? "no-date"}`}
+                      key={`${point.item.label}:${point.item.value}:${point.item.date ?? "no-date"}:${index}`}
                       r="6"
                     />
                   ))}
-                  {points.map((point) =>
+                  {points.map((point, index) =>
                     point.item.date ? (
-                      <text fill="#667085" fontSize="13" key={`${point.item.date}:label`} textAnchor="middle" x={point.cx} y="226">
+                      <text fill="#667085" fontSize="13" key={`${point.item.date}:label:${index}`} textAnchor="middle" x={point.cx} y="226">
                         {formatDate(point.item.date)}
                       </text>
                     ) : null
@@ -87,8 +87,8 @@ export function MileageChart({ section }: { section: ReportSection | undefined }
             </div>
 
             <div className="overflow-hidden rounded-md border">
-              {items.map((item) => (
-                <div className="grid gap-1 border-b p-3 last:border-b-0" key={`${item.label}:${item.value}:${item.date ?? "no-date"}`}>
+              {items.map((item, index) => (
+                <div className="grid gap-1 border-b p-3 last:border-b-0" key={`${item.label}:${item.value}:${item.date ?? "no-date"}:${index}`}>
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <span className="min-w-0 text-sm text-muted-foreground [overflow-wrap:anywhere]">{item.label}</span>
                     {item.date && <time className="shrink-0 text-xs text-muted-foreground">{formatDate(item.date)}</time>}
