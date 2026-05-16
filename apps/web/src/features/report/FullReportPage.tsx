@@ -11,6 +11,7 @@ import { LegalStatusMatrix } from "./LegalStatusMatrix";
 import { DamageAndRepairSection } from "./DamageAndRepairSection";
 import { ListingsHistory } from "./ListingsHistory";
 import { ReportBasis } from "./ReportBasis";
+import { ReportNavigation } from "./ReportNavigation";
 import { sectionById } from "./report-types";
 
 export function FullReportPage({
@@ -46,6 +47,7 @@ export function FullReportPage({
 
         <div className="grid min-w-0 gap-6">
           <ReportSummary data={data} />
+          <ReportNavigation presentation={data.presentation} />
           {shareState.status === "ready" && <ShareReadyCard shareState={shareState} />}
           {shareState.status === "error" && <ShareErrorCard message={shareState.message} />}
           <ReportTimeline section={sectionById(data, "update_history")} />

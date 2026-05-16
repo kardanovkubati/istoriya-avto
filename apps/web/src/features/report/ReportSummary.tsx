@@ -13,7 +13,7 @@ export function ReportSummary({ data }: { data: VehicleFullReportResponse }) {
   const summary = data.presentation.summarySignals;
 
   return (
-    <Card className="border-slate-300">
+    <Card className="border-slate-300" id="summary">
       <CardContent className="grid gap-5 p-5 sm:p-6">
         <div className="grid gap-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
