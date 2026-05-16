@@ -118,25 +118,46 @@ export type UnlockCommitResponse = {
   entitlements: ContextResponse["entitlements"];
 };
 
+export type ReportSectionId =
+  | "summary"
+  | "passport"
+  | "legal_risks"
+  | "accidents_repairs"
+  | "mileage"
+  | "owners_registrations"
+  | "listings"
+  | "commercial_use"
+  | "maintenance"
+  | "data_quality"
+  | "update_history";
+
 export type ReportPresentation = {
   generatedAt: string;
   noindex: true;
   disclaimer: string;
   watermark: string;
   actions: { canShare: boolean; canDownloadPdf: boolean };
+  summarySignals: {
+    headline: string;
+    negativeSignals: Array<{
+      label: string;
+      value: string;
+      tone: "default" | "good" | "warning" | "danger";
+      sectionId?: ReportSectionId;
+    }>;
+    expertChecks: Array<{
+      label: "Кузов" | "Пробег" | "Документы" | "Юридические статусы";
+      reason: string;
+    }>;
+    neutralFacts: Array<{
+      label: string;
+      value: string;
+      tone: "default" | "good" | "warning" | "danger";
+      sectionId?: ReportSectionId;
+    }>;
+  };
   sections: Array<{
-    id:
-      | "summary"
-      | "passport"
-      | "legal_risks"
-      | "accidents_repairs"
-      | "mileage"
-      | "owners_registrations"
-      | "listings"
-      | "commercial_use"
-      | "maintenance"
-      | "data_quality"
-      | "update_history";
+    id: ReportSectionId;
     title: string;
     critical: boolean;
     state: "ready" | "empty";

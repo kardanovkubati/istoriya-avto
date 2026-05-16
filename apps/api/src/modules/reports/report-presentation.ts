@@ -35,12 +35,32 @@ export type ReportPresentationSection = {
   items: ReportPresentationItem[];
 };
 
+export type ReportSummarySignal = {
+  label: string;
+  value: string;
+  tone: "default" | "good" | "warning" | "danger";
+  sectionId?: ReportSectionId;
+};
+
+export type ReportExpertCheck = {
+  label: "Кузов" | "Пробег" | "Документы" | "Юридические статусы";
+  reason: string;
+};
+
+export type ReportSummarySignals = {
+  headline: string;
+  negativeSignals: ReportSummarySignal[];
+  expertChecks: ReportExpertCheck[];
+  neutralFacts: ReportSummarySignal[];
+};
+
 export type ReportPresentation = {
   generatedAt: string;
   noindex: true;
   disclaimer: string;
   watermark: string;
   actions: { canShare: boolean; canDownloadPdf: boolean };
+  summarySignals: ReportSummarySignals;
   sections: ReportPresentationSection[];
 };
 
@@ -60,6 +80,7 @@ export function buildReportPresentation(input: {
       canShare: input.mode === "owner",
       canDownloadPdf: input.mode === "owner"
     },
+    summarySignals: buildSummarySignals(input.report),
     sections: [
       summarySection(input.report),
       passportSection(input.report),
@@ -80,26 +101,126 @@ export function buildReportPresentation(input: {
 }
 
 function summarySection(report: VehicleFullReportReadModel): ReportPresentationSection {
-  const transparency =
-    report.summary.transparency.kind === "score"
-      ? `${report.summary.transparency.value} / ${report.summary.transparency.max} · ${report.summary.transparency.label}`
-      : report.summary.transparency.message;
-
   return ready("summary", "Сводка", true, [
-    { label: "Оценка прозрачности", value: transparency },
     { label: "Основа истории", value: report.summary.historyBasisText },
     ...(
       report.summary.freshnessWarning === null
         ? []
         : [
             {
-              label: "Свежесть",
+              label: "Актуальность",
               value: report.summary.freshnessWarning,
               tone: "warning" as const
             }
           ]
     )
   ]);
+}
+
+function buildSummarySignals(report: VehicleFullReportReadModel): ReportSummarySignals {
+  const negativeSignals: ReportSummarySignal[] = [
+    riskSignal("ДТП", report.accidentsAndRepairs.accidents, "accidents_repairs"),
+    riskSignal("Расчеты ремонта", report.accidentsAndRepairs.repairCalculations, "accidents_repairs"),
+    riskSignal("Ограничения", report.legalRisks.restrictions, "legal_risks"),
+    riskSignal("Залог", report.legalRisks.pledge, "legal_risks"),
+    riskSignal("Розыск", report.legalRisks.wanted, "legal_risks"),
+    report.mileage.hasRollbackSignals
+      ? { label: "Пробег", value: "есть расхождение", tone: "warning" as const, sectionId: "mileage" as const }
+      : null,
+    ...report.conflicts
+      .filter((conflict) => conflict.severity === "critical")
+      .map((conflict) => ({
+        label: "Расхождение данных",
+        value: conflict.message,
+        tone: "danger" as const,
+        sectionId: "data_quality" as const
+      }))
+  ].filter((signal): signal is ReportSummarySignal => signal !== null);
+
+  const neutralFacts: ReportSummarySignal[] = [
+    neutralRiskFact("Ограничения", report.legalRisks.restrictions, "legal_risks", "не найдены"),
+    neutralRiskFact("Залог", report.legalRisks.pledge, "legal_risks", "не найден"),
+    neutralRiskFact("Розыск", report.legalRisks.wanted, "legal_risks", "не найден"),
+    report.listings.length > 0
+      ? {
+          label: "Объявления",
+          value: pluralize(report.listings.length, "запись", "записи", "записей"),
+          tone: "default" as const,
+          sectionId: "listings" as const
+        }
+      : null,
+    report.mileage.readings.length > 0
+      ? {
+          label: "Пробег",
+          value: `зафиксирован в ${pluralize(report.mileage.readings.length, "точке", "точках", "точках")}`,
+          tone: report.mileage.hasRollbackSignals ? "warning" as const : "default" as const,
+          sectionId: "mileage" as const
+        }
+      : null,
+    report.summary.freshnessWarning === null
+      ? {
+          label: "Обновление",
+          value: report.summary.lastUpdatedAt === null ? "дата не указана" : formatDate(report.summary.lastUpdatedAt),
+          tone: "default" as const,
+          sectionId: "update_history" as const
+        }
+      : {
+          label: "Актуальность",
+          value: report.summary.freshnessWarning,
+          tone: "warning" as const,
+          sectionId: "update_history" as const
+        }
+  ].filter((signal): signal is ReportSummarySignal => signal !== null);
+
+  return {
+    headline:
+      negativeSignals.length > 0
+        ? "Найдены сигналы, которые стоит проверить перед осмотром"
+        : "Сводная история собрана по доступным данным",
+    negativeSignals,
+    expertChecks: expertChecksFor(negativeSignals),
+    neutralFacts
+  };
+}
+
+function riskSignal(
+  label: string,
+  risk: ReportRiskFact,
+  sectionId: ReportSectionId
+): ReportSummarySignal | null {
+  if (risk.status !== "found") return null;
+  return { label, value: "найдено", tone: "danger", sectionId };
+}
+
+function neutralRiskFact(
+  label: string,
+  risk: ReportRiskFact,
+  sectionId: ReportSectionId,
+  value: string
+): ReportSummarySignal | null {
+  if (risk.status !== "not_found") return null;
+  return { label, value, tone: "good", sectionId };
+}
+
+function expertChecksFor(signals: ReportSummarySignal[]): ReportExpertCheck[] {
+  const checks = new Map<ReportExpertCheck["label"], string>();
+
+  for (const signal of signals) {
+    if (signal.sectionId === "accidents_repairs") {
+      checks.set("Кузов", "Проверить следы ремонта, окрасы и геометрию кузова.");
+    }
+    if (signal.sectionId === "mileage") {
+      checks.set("Пробег", "Сверить пробег с диагностикой, сервисными записями и состоянием салона.");
+    }
+    if (signal.sectionId === "legal_risks") {
+      checks.set("Юридические статусы", "Проверить актуальные ограничения и документы перед сделкой.");
+    }
+    if (signal.sectionId === "data_quality") {
+      checks.set("Документы", "Сверить VIN, ПТС и факты из разных документов.");
+    }
+  }
+
+  return Array.from(checks, ([label, reason]) => ({ label, reason }));
 }
 
 function passportSection(report: VehicleFullReportReadModel): ReportPresentationSection {
@@ -246,6 +367,13 @@ function section(
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("ru-RU").format(value);
+}
+
+function pluralize(count: number, one: string, few: string, many: string): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  const word = mod10 === 1 && mod100 !== 11 ? one : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? few : many;
+  return `${formatNumber(count)} ${word}`;
 }
 
 function formatDate(iso: string): string {

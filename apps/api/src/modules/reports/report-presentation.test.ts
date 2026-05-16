@@ -60,6 +60,52 @@ describe("report presentation", () => {
 
     expect(presentation.actions).toEqual({ canShare: false, canDownloadPdf: false });
   });
+
+  it("builds negative-first summary without purchase recommendations", () => {
+    const presentation = buildReportPresentation({
+      report: fullReport({
+        accidentsAndRepairs: {
+          accidents: { status: "found", checkedAt: "2026-05-01T00:00:00.000Z" },
+          repairCalculations: { status: "found", checkedAt: "2026-05-01T00:00:00.000Z" }
+        },
+        mileage: {
+          readings: [
+            { observedAt: "2026-01-01T00:00:00.000Z", mileageKm: 120000, context: "listing" },
+            { observedAt: "2026-04-01T00:00:00.000Z", mileageKm: 98000, context: "report" }
+          ],
+          hasRollbackSignals: true
+        }
+      }),
+      mode: "owner"
+    });
+
+    expect(presentation.summarySignals.headline).toBe("Найдены сигналы, которые стоит проверить перед осмотром");
+    expect(presentation.summarySignals.negativeSignals.map((signal) => signal.label)).toEqual([
+      "ДТП",
+      "Расчеты ремонта",
+      "Пробег"
+    ]);
+    expect(presentation.summarySignals.expertChecks.map((check) => check.label)).toEqual([
+      "Кузов",
+      "Пробег"
+    ]);
+    expect(JSON.stringify(presentation)).not.toMatch(/можно брать|рекомендуем|хорошо|чисто|машина нормальная|прозрачн/i);
+  });
+
+  it("keeps neutral facts factual when risks are not found", () => {
+    const presentation = buildReportPresentation({ report: fullReport(), mode: "owner" });
+
+    expect(presentation.summarySignals.neutralFacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Ограничения", value: "не найдены", tone: "good" }),
+        expect.objectContaining({ label: "Залог", value: "не найден", tone: "good" }),
+        expect.objectContaining({ label: "Розыск", value: "не найден", tone: "good" }),
+        expect.objectContaining({ label: "Объявления", value: "1 запись", tone: "default" })
+      ])
+    );
+    expect(presentation.summarySignals.negativeSignals).toEqual([]);
+    expect(JSON.stringify(presentation)).not.toMatch(/хорошо|чисто|прозрачн/i);
+  });
 });
 
 function fullReport(
