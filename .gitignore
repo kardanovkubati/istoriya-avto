@@ -7,5 +7,6 @@ coverage
 .DS_Store
 *.log
 .worktrees
+.superpowers
 .local
 fixtures/private
