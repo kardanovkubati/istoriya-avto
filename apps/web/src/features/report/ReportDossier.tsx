@@ -23,6 +23,8 @@ export function ReportDossier({
   onDownloadPdf: () => void;
 }) {
   const reportDate = data.report.summary.lastUpdatedAt ?? data.report.generatedAt;
+  const canShareReport = mode === "owner" && data.presentation.actions.canShare;
+  const canDownloadPdf = mode === "owner" && data.presentation.actions.canDownloadPdf;
 
   return (
     <aside className="grid gap-4 lg:sticky lg:top-6 lg:self-start">
@@ -59,7 +61,7 @@ export function ReportDossier({
               <ChevronLeft aria-hidden="true" />
               <span>{mode === "share" ? "На главную" : "К поиску"}</span>
             </Button>
-            {data.presentation.actions.canShare && (
+            {canShareReport && (
               <Button
                 type="button"
                 variant="outline"
@@ -71,7 +73,7 @@ export function ReportDossier({
                 <span>{shareState.status === "creating" ? "Создаем" : "Поделиться"}</span>
               </Button>
             )}
-            {data.presentation.actions.canDownloadPdf && (
+            {canDownloadPdf && (
               <Button type="button" onClick={onDownloadPdf}>
                 <Download aria-hidden="true" />
                 <span>Скачать PDF</span>
