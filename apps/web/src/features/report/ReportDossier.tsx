@@ -91,8 +91,8 @@ function DossierRow({ label, value }: { label: string; value: string | number | 
 
   return (
     <div className="flex items-start justify-between gap-3 border-t border-white/10 pt-2 first:border-t-0 first:pt-0">
-      <span className="text-slate-400">{label}</span>
-      <strong className="min-w-0 text-right font-semibold text-white">{value}</strong>
+      <span className="shrink-0 text-slate-400">{label}</span>
+      <strong className="min-w-0 text-right font-semibold text-white [overflow-wrap:anywhere]">{value}</strong>
     </div>
   );
 }
